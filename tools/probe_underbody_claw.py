@@ -32,12 +32,34 @@ FINGER_GEOMS = tuple(f"{leg}_{part}_meshcol" for leg in ("LF", "RF")
 ALIGNMENTS = {
     "original": None,
     "underbody_a": (-.8, .193799, -1.177099, -1.918445),
+    "forward_elbows": (-1.57, -.025, -1.3, -1.85),
+    "sagittal": (-1.2, -.167011, -1.212674, -1.9),
 }
 # Matched palm positions at the reach/push endpoints. Compensating elbow and
 # wrist angles prevents yaw alone from changing the ground stroke's footprint.
 STROKES = {
     "underbody_a": ((.146142366, -.412971688, -1.542585996),
                     (-.908669467, -1.412483713, .741971086)),
+    "forward_elbows": ((.326685, -.703617, -1.368439),
+                       (.556860, -1.314918, 1.045412)),
+    "sagittal": ((.255644, -.530212, -1.473822),
+                 (-.350866, -1.313594, 1.046959)),
+}
+# Same shallow palm position [.04,.05,-.14] m, solved per shoulder yaw.
+SHALLOW_PLANTS = {
+    "original": (.099106, -.635286, -1.815582),
+    "sagittal": (.017730, -.620594, -1.823693),
+    "forward_elbows": (-.020807, -.573650, -1.849544),
+}
+# Small backward/downward strokes from the shallow plant. A balances both,
+# B emphasizes down, C emphasizes back, at roughly 30 degrees nose-down.
+SHORT_PUSHES = {
+    "original": ((.079217, -1.055445, -1.236272),
+                 (-.032548, -1.094170, -1.087796), (.191849, -1.230519, -1.085158)),
+    "sagittal": ((.014170, -1.042707, -1.244562),
+                 (-.032109, -.979674, -1.165780), (.062658, -1.321022, -1.022241)),
+    "forward_elbows": ((-.016637, -1.002270, -1.270735),
+                       (-.015695, -.922429, -1.203888), (-.016531, -1.296945, -1.039114)),
 }
 
 
@@ -134,7 +156,7 @@ def self_test(include_relay=False):
     assert closed.target(.03, quat, contact, np.array([True]))[
         0, names.index("LF_J4_joint")] == 0
     if include_relay:
-        from tasks.jumper.front_somersault.relay import MIDDLE
+        from tasks.jumper.front_somersault.relay import ALIGN, MIDDLE
         from tasks.jumper.front_somersault.relay import controller_type as relay_type
 
         variant = dict(yaw=HOME["LF_J0_joint"], opening=-.3, open_seconds=.03,
@@ -183,8 +205,50 @@ def self_test(include_relay=False):
         relay.measured_q[0, names.index("RF_J4_joint")] = .3
         relay.target(.26, tilted, contact, np.array([True]))
         assert relay.stage[0] == relay.TUCK
+        overlap_variant = dict(variant, relay=dict(variant["relay"], overlap_fraction=.5,
+                               overlap_min_angle_deg=20, middle_hold_s=.06,
+                               shoulder_after_tuck=True))
+        overlap = relay_type(controller_type([overlap_variant]), [overlap_variant])(
+            np.array(params["params"])[None], names)
+        overlap.measured_q = np.array([[HOME[n] for n in names]])
+        overlap.stage[:] = MIDDLE
+        overlap.started[:] = 0
+        if hasattr(overlap, "middle_started"):
+            overlap.middle_started[:] = 0
+            overlap.middle_start[:] = overlap.current[:, overlap.middle_ids]
+        mild = np.radians(40)
+        tilted_mild = np.array([[np.cos(mild/2), 0, np.sin(mild/2), 0]])
+        contact[:] = True
+        contact[:, 4:] = False
+        overlap.target(.02, tilted_mild, contact, np.array([True]))
+        assert overlap.stage[0] == MIDDLE, "overlap ignored its minimum middle stroke"
+        overlap.target(.045, tilted_mild, contact, np.array([True]))
+        assert overlap.stage[0] == overlap.PUSH, "overlap still waits for the old 65-degree gate"
+        assert overlap.poses[0, overlap.LOAD, names.index("LF_J0_joint")] == HOME["LF_J0_joint"]
+        overlap.stage[:] = ALIGN
+        overlap.started[:] = 0
+        overlap.measured_q[:] = [[HOME[n] for n in names]]
+        overlap.target(.4, quat, contact, np.array([True]))
+        assert overlap.stage[0] == ALIGN, "elapsed alignment timer ignored the measured pose"
+        overlap.measured_q[:] = overlap.poses[:, ALIGN]
+        overlap.target(.41, quat, contact, np.array([True]))
+        assert overlap.stage[0] == overlap.REAR
+        overlap.stage[:] = overlap.TUCK
+        overlap.started[:] = .5
+        overlap.start_pose[:] = overlap.poses[:, overlap.PUSH]
+        overlap.measured_q[:] = overlap.start_pose
+        for leg, sign in (("LF", -1), ("RF", 1)):
+            overlap.measured_q[:, names.index(f"{leg}_J4_joint")] = sign*.3
+        overlap.target(.65, quat, contact, np.array([True]))
+        np.testing.assert_allclose(overlap.current[:, overlap.align_ids],
+                                   overlap.start_pose[:, overlap.align_ids])
+        assert np.isnan(overlap.fold_started[0]), "open jaws began the flight fold"
+        for leg in ("LF", "RF"):
+            overlap.measured_q[:, names.index(f"{leg}_J4_joint")] = 0
+        overlap.target(.66, quat, contact, np.array([True]))
+        assert overlap.fold_started[0] == .66
         print("Relay checks passed: rear-contact debounce, middle support, pitch/contact gates, "
-              "measured-arm delay with a command-clock negative control.")
+              "measured alignment/arm/jaw gates, overlap and closed-jaw flight fold.")
     print("Self-check passed: unloaded/COM-ahead controls, named mirroring, closed-jaw control.")
 
 
@@ -202,6 +266,14 @@ def main():
     parser.add_argument("--middle-ramp", type=float, default=.08)
     parser.add_argument("--jaw-after", type=float, default=.55,
                         help="measured arm-extension fraction before opening")
+    parser.add_argument("--overlap", type=float,
+                        help="start palm push after this fraction of middle ramp, if both pairs planted")
+    parser.add_argument("--middle-hold", type=float, default=.06,
+                        help="continue middle drive for this long after palm push starts [s]")
+    parser.add_argument("--shoulder-after-tuck", action="store_true")
+    parser.add_argument("--shallow-plant", action="store_true",
+                        help="plant closer under body, without the old deep reach")
+    parser.add_argument("--short-stroke", choices=("A", "B", "C"))
     parser.add_argument("--resume", type=Path, help="replay a complete variant JSON from this tool")
     parser.add_argument("--video", type=Path, help="record first variant; use --yaw for a chosen variant")
     parser.add_argument("--self-test", action="store_true")
@@ -209,8 +281,9 @@ def main():
     if args.self_test:
         self_test(args.relay)
         return
-    opening = -1.2 if args.opening is None else args.opening
-    single = any(v is not None for v in (args.yaw, args.opening, args.launch_angle, args.middle_knee))
+    opening = (-.6 if args.relay else -1.2) if args.opening is None else args.opening
+    single = any(v is not None for v in (args.yaw, args.opening, args.launch_angle,
+                                        args.middle_knee, args.overlap))
     if (not np.isfinite([opening, args.open_seconds]).all()
             or not -1.52 <= opening <= 0 or not .01 <= args.open_seconds <= .2):
         parser.error("opening must be [-1.52,0] rad and open-seconds [.01,.2] s")
@@ -243,16 +316,42 @@ def main():
                                   if single else (50, 65, 80))
                     for knee in ((-.8 if args.middle_knee is None else args.middle_knee,)
                                  if single else (-.8, -1.))]
+        if args.shoulder_after_tuck:
+            for v in variants:
+                v["relay"]["shoulder_after_tuck"] = True
+        if args.shallow_plant:
+            if args.alignment not in SHALLOW_PLANTS:
+                parser.error("no shallow plant solved for this alignment")
+            for v in variants:
+                v["relay"]["preplant_joints"] = SHALLOW_PLANTS[args.alignment]
+        if args.short_stroke:
+            if not args.shallow_plant or args.alignment not in SHORT_PUSHES:
+                parser.error("short-stroke requires a supported shallow-plant alignment")
+            for v in variants:
+                v["relay"]["push_joints"] = SHORT_PUSHES[args.alignment]["ABC".index(args.short_stroke)]
+        if args.overlap is not None:
+            if (not np.isfinite([args.overlap, args.middle_hold]).all()
+                    or not 0 <= args.overlap <= 1 or not 0 <= args.middle_hold <= .2):
+                parser.error("overlap must be [0,1] and middle-hold [0,.2] s")
+            for v in variants:
+                v["relay"].update(overlap_fraction=args.overlap, middle_hold_s=args.middle_hold,
+                                   overlap_min_angle_deg=20)
     elif args.launch_angle is not None or args.middle_knee is not None:
         parser.error("launch-angle and middle-knee require --relay")
+    elif args.overlap is not None or args.shoulder_after_tuck or args.shallow_plant or args.short_stroke:
+        parser.error("overlap, shoulder-after-tuck and shallow-plant require --relay")
     resumed = None
     if args.resume:
-        if single or args.relay or args.alignment != "original":
+        if (single or args.relay or args.alignment != "original"
+                or args.shoulder_after_tuck or args.shallow_plant or args.short_stroke):
             parser.error("resume supplies the motion; do not combine it with motion-selection flags")
         resumed = json.loads(args.resume.read_text())
         variants = [resumed["variant"]]
         args.relay = "relay" in variants[0]
     for v in variants:
+        if (v.get("alignment") in ("forward_elbows", "sagittal")
+                and not v.get("relay", {}).get("shoulder_after_tuck", False)):
+            parser.error("forward-elbow profiles require relay with shoulder-after-tuck")
         if (v.get("alignment") not in ALIGNMENTS or v.get("push_trigger") not in ("com", "contact")
                 or not np.isfinite([v["yaw"], v["opening"], v["open_seconds"]]).all()
                 or not -2.67 <= v["yaw"] <= .62 or not -1.52 <= v["opening"] <= 0
@@ -263,9 +362,19 @@ def main():
             bounds = {"launch_angle_deg": (35, 85), "middle_hip": (-.8, 1.),
                       "middle_knee": (-2.2, .2), "middle_yaw": (-.67, .92),
                       "middle_ramp": (.03, .2), "jaw_after_fraction": (.1, .95)}
+            for k, interval in {"overlap_fraction": (0, 1), "middle_hold_s": (0, .2),
+                                "overlap_min_angle_deg": (0, 85), "preplant_ramp": (.01, .15),
+                                "align_seconds": (.2, .6)}.items():
+                if k in o:
+                    bounds[k] = interval
             if any(not np.isfinite(o[k]) or not lo <= o[k] <= hi
                    for k, (lo, hi) in bounds.items()):
                 parser.error("relay settings outside bounded diagnostic ranges")
+            for key in ("preplant_joints", "push_joints"):
+                if key in o:
+                    plant = np.asarray(o[key])
+                    if plant.shape != (3,) or not np.isfinite(plant).all():
+                        parser.error(f"{key} must be three finite LF J1-J3 angles")
     original_controller, original_scene = staged.RearClawController, physics.scene_cfg
     controller = controller_type(variants)
     if args.relay:
@@ -324,6 +433,9 @@ def main():
             if args.relay:
                 instance = instances[-1]
                 middle = data["stage"] == 7
+                middle_force = data["foot_force"][:, 2:4, 2].sum(axis=1)
+                palm_force = data["foot_force"][:, :2, 2].sum(axis=1)
+                shared_support = push & (middle_force > 1) & (palm_force > 1)
                 report.update(
                     middle_drive_executed=bool(middle.any()),
                     middle_upward_impulse_Ns=float(data["foot_force"][middle, 2:4, 2].sum()
@@ -339,6 +451,12 @@ def main():
                     jaw_open_trigger_s=(None if np.isnan(instance.jaw_started[i])
                                         else float(instance.jaw_started[i])),
                     palms_planted_at_jaw_open=bool(instance.jaw_grounded[i]),
+                    middle_planted_at_arm_launch=bool(instance.middle_grounded_at_launch[i]),
+                    powered_support_overlap_s=float(shared_support.sum()*physics.CONTROL_DT),
+                    middle_during_claw_push_upward_impulse_Ns=float(
+                        middle_force[push].sum()*physics.CONTROL_DT),
+                    shoulders_aligned_s=(None if np.isnan(instance.aligned_at[i])
+                                         else float(instance.aligned_at[i])),
                 )
             if push.any():
                 finger_joints = [runner.names.index(f"{leg}_J4_joint") for leg in ("LF", "RF")]

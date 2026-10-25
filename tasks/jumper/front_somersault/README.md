@@ -10,6 +10,8 @@ accumulated-forward-rotation tracking. Existing common and jump files are unchan
 not a trained policy or a successful flip. Its matching `ref/diagnostic.npz` is
 available only for explicit smoke tests. There is deliberately no qualified
 `ref/front_somersault.npz`; ordinary training refuses to start without one.
+The latest [forward-elbow overlap preview](overlap_forward_elbows_slow.mp4)
+tests an earlier shared push; its results and replay settings are below.
 The [half-speed video](rear_claw_half_speed.mp4) makes the two propulsion stages
 easier to inspect; it contains the same simulated motion with slower playback.
 
@@ -142,6 +144,72 @@ Validation includes CPU rollouts and MP4 replay, relay feedback self-checks,
 25 registry/parity checks, and Ruff. A closed-jaw, non-relay control reproduced
 the original recorded joint trajectory exactly on this machine. No policy
 training or hardware test was performed for this experimental sequence.
+
+### Earlier overlap with forward-facing elbows
+
+The [new slow-motion recording](overlap_forward_elbows_slow.mp4) and
+[`overlap_forward_elbows.json`](overlap_forward_elbows.json) show post-tuck
+shoulder rotation and an earlier middle/claw handoff. This remains a failed
+physics prototype; the existing training task/reference is unchanged.
+
+```sh
+python tools/probe_underbody_claw.py --resume tasks/jumper/front_somersault/overlap_forward_elbows.json --output outputs/overlap_replay --video outputs/overlap_replay.mp4
+```
+
+After the original underbody tuck, ALIGN (stage 8) turns all four arm joints
+together toward LF J0..J3 = [-1.57, -0.025, -1.3, -1.85] rad, RF mirrored by
+name. It allows 0.4 s and requires measured joint error below 0.15 rad before
+rear drive. Turning J0 alone after changing elbow/wrist angles crossed the
+claws. The coordinated path retained 11.75 mm minimum claw-mesh floor clearance
+in FK at nominal HOME base height. The final forearm axis is
+[0.2674, 0.0001, -0.9636]: forward/down with almost no sideways component.
+
+Shallow planting targets place the palms at [0.04, +/-0.05, -0.14] m relative
+to the base. The earliest permitted launch is after 25% of the 0.06 s middle
+ramp and 20 degrees nose-down, with current middle/palm contact and the COM
+gate satisfied. Middle drive continues through the initial palm push rather
+than immediately lifting those feet. Its requested shared-drive hold is
+0.08 s; actual support overlap is measured separately from forces. Fingers
+start opening at 25% measured arm progress. During TUCK, folding waits for
+measured finger aperture below 0.08 rad. The timed HOME-recovery fallback
+remains, so this is not a global guarantee for every experimental setting.
+
+A 24-case comparison covered three arm profiles, overlap/no-overlap,
+deep/shallow planting and two middle ramps. Another 32 cases varied launch
+stroke and middle hip/ramp settings. Short strokes reduced requested wrist
+travel from about 2.9 rad to 0.6-0.8 rad, but did not improve the flip in these
+trials. The selected recording retains the longer target with earlier
+opening and measured-closure flight folding.
+
+Measured on the Windows AMD CPU:
+
+| Measurement | Previous late relay | Forward-elbow overlap | Original rear/claw |
+|---|---:|---:|---:|
+| Peak forward rotation | 206.85 degrees | 200.85 degrees | 224.67 degrees |
+| Turn in one flight | 31.90 degrees | 131.11 degrees | 149.26 degrees |
+| Longest flight | 0.070 s | 0.250 s | 0.265 s |
+| Peak base height | 0.155 m | 0.266 m | 0.248 m |
+
+The new shoulders settle at 1.185 s; rear-foot departure occurs at 1.275 s.
+Claw launch starts at **30.17 degrees**, with middle support still present.
+Middle/palm pair forces both exceed 1 N for **0.020 s** during PUSH. Middle
+upward impulse is **1.576 N*s** during middle drive plus **0.120 N*s** during
+PUSH. Opening triggers at 1.570 s, after **26.66%** arm progress, but palms have
+already lost contact and moving fingers still record zero ground force.
+Forward palm impulse is only **0.0097 N*s**, below the existing propulsion
+gate. Simultaneous support does not establish extra propulsion or positive work.
+Peak torque is **1.7464 N*m**, self-contact force zero and peak non-foot impact
+**225.59 N**. The attempt still lands on the body and is not promoted for training.
+
+Optional `--overlap`, `--middle-hold`, `--shoulder-after-tuck`, `--shallow-plant`
+and `--short-stroke A/B/C` select these experiments. `ALIGNMENTS`,
+`SHALLOW_PLANTS`, `STROKES` and `SHORT_PUSHES` are editable named tables in
+the probe tool; full JSON settings replay an exact combination.
+
+Validation includes CPU trials/replay, feedback/overlap self-checks, 25
+registry/parity tests, Ruff and an independent mixed-stage batch comparison
+against four individual controllers. The non-relay control still reproduces
+the original actual joint trajectory exactly. No shared code was modified.
 
 ## 1. Find a physically achievable reference
 
