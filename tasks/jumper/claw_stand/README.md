@@ -73,13 +73,13 @@ measurement. Rewards and thresholds are starting points, not a trained result.
 
 ## Train in free Colab (T4)
 
-Open [the notebook on this branch](https://colab.research.google.com/github/Claytonjc-git/jumper/blob/feat/claw-stand/notebooks/jumper_colab.ipynb)
+Open [the notebook on this branch](https://colab.research.google.com/github/Claytonjc-git/jumper-crab-robot/blob/feat/claw-stand/notebooks/jumper_colab.ipynb)
 and select a T4 GPU runtime. In **Advanced source**, set the first two values
 below. Edit the **Basic settings cell source** for `TASK` because the dropdown
 does not yet list custom tasks. Use a fresh runtime when changing source commits.
 
 ```python
-REPOSITORY_URL = "https://github.com/Claytonjc-git/jumper.git"
+REPOSITORY_URL = "https://github.com/Claytonjc-git/jumper-crab-robot.git"
 SOURCE_REVISION = "feat/claw-stand"
 WORKFLOW_MODE = "New training"
 TASK = "jumper.claw_stand"

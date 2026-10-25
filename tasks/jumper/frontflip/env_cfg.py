@@ -1,4 +1,4 @@
-"""200 Hz tracking of a qualified, torque-limited forward somersault reference."""
+"""200 Hz tracking of a qualified, torque-limited frontflip reference."""
 
 from __future__ import annotations
 
@@ -22,14 +22,14 @@ from .physics import (
     sensors,
 )
 
-REFERENCE = Path(__file__).resolve().parent / "ref" / "front_somersault.npz"
+REFERENCE = Path(__file__).resolve().parent / "ref" / "frontflip.npz"
 
 
 def env_cfg(asset: Path | None = None, play: bool = False):
     if asset is not None and Path(asset).resolve() != JUMPER_XML.resolve():
-        raise ValueError("Somersault reference is qualified against the default jumper.xml only")
-    path = Path(os.environ.get("MJRL_FRONT_SOMERSAULT_REFERENCE", str(REFERENCE))).expanduser()
-    diagnostic = os.environ.get("MJRL_FRONT_SOMERSAULT_ALLOW_DIAGNOSTIC") == "1"
+        raise ValueError("Frontflip reference is qualified against the default jumper.xml only")
+    path = Path(os.environ.get("MJRL_FRONTFLIP_REFERENCE", str(REFERENCE))).expanduser()
+    diagnostic = os.environ.get("MJRL_FRONTFLIP_ALLOW_DIAGNOSTIC") == "1"
     _, arrays = mdp.read_reference(path, diagnostic)
     cfg = jump_env_cfg(asset=asset, play=play)
     cfg.sim.mujoco.timestep = PHYSICS_DT
@@ -53,7 +53,7 @@ def env_cfg(asset: Path | None = None, play: bool = False):
             history_length=cfg.decimation,
         ),
     )
-    cfg.commands["jump"] = mdp.FrontSomersaultCommandCfg(
+    cfg.commands["jump"] = mdp.FrontflipCommandCfg(
         entity_name="robot", motion_file=str(path), allow_diagnostic=diagnostic,
         command_delay_range=(T_GO, T_GO), rsi_fraction=0.0 if play else 0.8,
     )
@@ -97,7 +97,7 @@ def env_cfg(asset: Path | None = None, play: bool = False):
     cfg.viewer.distance = 1.2
 
     def reference_contract():
-        reference = mdp.FrontSomersaultReference(path, "cpu", list(HOME), diagnostic)
+        reference = mdp.FrontflipReference(path, "cpu", list(HOME), diagnostic)
         return reference.deploy_contract(FUTURE_OFFSETS, CONTROL_DT, starts_on_entry=True)
 
     cfg.reference_contract = reference_contract

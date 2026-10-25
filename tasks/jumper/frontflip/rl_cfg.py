@@ -7,7 +7,7 @@ from ..common.ppo import jumper_ppo_baseline
 
 def agent_cfg() -> RslRlOnPolicyRunnerCfg:
     return jumper_ppo_baseline(
-        experiment_name="jumper.front_somersault",
+        experiment_name="jumper.frontflip",
         actor_hidden_dims=(512, 256, 128),
         critic_hidden_dims=(512, 256, 128),
         entropy_coef=0.005,

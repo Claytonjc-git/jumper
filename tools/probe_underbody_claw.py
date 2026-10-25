@@ -17,7 +17,7 @@ import numpy as np
 
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 from tasks.jumper.common.constants import HOME
-from tasks.jumper.front_somersault import physics, staged
+from tasks.jumper.frontflip import physics, staged
 
 ROOT = Path(__file__).resolve().parents[1]
 # Absolute LF angles [rad]. The original-alignment grid changes only yaw/J4
@@ -129,7 +129,7 @@ def finger_force(env):
 
 def self_test(include_relay=False):
     """Pin the silent trap: opening a jaw before the palms actually bear weight."""
-    params = json.loads((ROOT / "tasks/jumper/front_somersault/ref/diagnostic.json").read_text())
+    params = json.loads((ROOT / "tasks/jumper/frontflip/ref/diagnostic.json").read_text())
     names = list(HOME)[::-1]
     kind = controller_type([dict(yaw=-.8, opening=-.6, open_seconds=.03,
                                  alignment="underbody_a")])
@@ -156,8 +156,8 @@ def self_test(include_relay=False):
     assert closed.target(.03, quat, contact, np.array([True]))[
         0, names.index("LF_J4_joint")] == 0
     if include_relay:
-        from tasks.jumper.front_somersault.relay import ALIGN, MIDDLE
-        from tasks.jumper.front_somersault.relay import controller_type as relay_type
+        from tasks.jumper.frontflip.relay import ALIGN, MIDDLE
+        from tasks.jumper.frontflip.relay import controller_type as relay_type
 
         variant = dict(yaw=HOME["LF_J0_joint"], opening=-.3, open_seconds=.03,
                        alignment="original", relay=dict(launch_angle_deg=65,
@@ -378,7 +378,7 @@ def main():
     original_controller, original_scene = staged.RearClawController, physics.scene_cfg
     controller = controller_type(variants)
     if args.relay:
-        from tasks.jumper.front_somersault.relay import controller_type as relay_type
+        from tasks.jumper.frontflip.relay import controller_type as relay_type
 
         controller = relay_type(controller, variants)
 
@@ -393,7 +393,7 @@ def main():
         return cfg
 
     args.output.mkdir(parents=True, exist_ok=True)
-    baseline = json.loads((ROOT / "tasks/jumper/front_somersault/ref/diagnostic.json").read_text())
+    baseline = json.loads((ROOT / "tasks/jumper/frontflip/ref/diagnostic.json").read_text())
     source_params = baseline["params"] if resumed is None else resumed["baseline_params"]
     params = np.tile(source_params, (len(variants), 1))
     runner = None
@@ -464,7 +464,7 @@ def main():
                     data["q"][push][:, finger_joints], axis=0).tolist()
             experiment_paths = [Path(__file__)]
             if args.relay:
-                experiment_paths.append(ROOT / "tasks/jumper/front_somersault/relay.py")
+                experiment_paths.append(ROOT / "tasks/jumper/frontflip/relay.py")
             experiment_hash = hashlib.sha256()
             for path in experiment_paths:
                 experiment_hash.update(path.read_bytes().replace(b"\r\n", b"\n"))

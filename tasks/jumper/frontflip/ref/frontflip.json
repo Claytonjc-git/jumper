@@ -28,7 +28,7 @@
   "t_go": 0.3,
   "go_frame": 60,
   "stand_base_z": 0.1064700037240982,
-  "model_fingerprint": "98d6af083931e8244c0d90e77327ccedba1f5dcfbbba1190cbb7ae98e1e28ae3",
+  "model_fingerprint": "967ae58477642b47d033be7237bc30cf7b87aa66087a9cfc4c08f06c42aac162",
   "KP": 10.0,
   "KD": 0.5,
   "qualified": true,

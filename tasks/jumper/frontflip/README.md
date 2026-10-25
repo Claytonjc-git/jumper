@@ -1,6 +1,6 @@
-# Forward somersault
+# Frontflip
 
-`jumper.front_somersault` is a physics-search and residual-tracking setup for
+`jumper.frontflip` is a physics-search and residual-tracking setup for
 rear-leg drive → claw plant/push → tuck → land → HOME. It uses the existing jump task's
 actions and observations, with task-local orientation, angular-velocity and
 accumulated-forward-rotation tracking. Existing common and jump files are unchanged.
@@ -8,14 +8,14 @@ accumulated-forward-rotation tracking. Existing common and jump files are unchan
 `ref/diagnostic.json` keeps the base rear-claw parameters the probes start from.
 Its NPZ predates the 2026-10-25 gate change and no longer loads as a reference.
 
-**A qualified physics reference exists:** [`ref/front_somersault.npz`](ref/front_somersault.npz)
+**A qualified physics reference exists:** [`ref/frontflip.npz`](ref/frontflip.npz)
 passes all 14 qualification gates in nominal CPU physics. The
-[video](front_somersault.mp4) shows it. It is an open-loop servo schedule, not a trained
+[video](frontflip.mp4) shows it. It is an open-loop servo schedule, not a trained
 policy, and it has not run on the robot. The reference is the `tuned` tuck with
 the `tuned` landing (see below), saved by:
 
 ```sh
-python tools/probe_momentum_launch.py --resume tasks/jumper/front_somersault/momentum_launch.json --tuck tuned --landing tuned --reference tasks/jumper/front_somersault/ref/front_somersault.npz --video tasks/jumper/front_somersault/front_somersault.mp4
+python tools/probe_momentum_launch.py --resume tasks/jumper/frontflip/momentum_launch.json --tuck tuned --landing tuned --reference tasks/jumper/frontflip/ref/frontflip.npz --video tasks/jumper/frontflip/frontflip.mp4
 ```
 
 | Measurement | Value |
@@ -73,7 +73,7 @@ bounded timeout; that extra wait performed worse here and is not selected.
 ```sh
 python tools/probe_momentum_launch.py --self-test
 python tools/probe_momentum_launch.py --compare --output outputs/momentum_compare
-python tools/probe_momentum_launch.py --resume tasks/jumper/front_somersault/momentum_launch.json --output outputs/momentum_replay --video outputs/momentum_replay.mp4
+python tools/probe_momentum_launch.py --resume tasks/jumper/frontflip/momentum_launch.json --output outputs/momentum_replay --video outputs/momentum_replay.mp4
 ```
 
 The 19-case geometry/timing comparison and 256 bounded refinements were
@@ -107,7 +107,7 @@ Middle feet contribute +0.538 N*s forward and +2.004 N*s upward terrain
 impulse across REAR/REACH/PUSH. The palms' net forward impulse during PUSH
 is **-0.326 N*s**, so that part still brakes forward translation. The full
 roll finishes upright and settled, but includes ground contact rather than
-a complete airborne somersault. Self-contact force is zero and peak torque
+a complete airborne frontflip. Self-contact force is zero and peak torque
 stays 1.7464 N*m. All commanded targets retain at least 0.10 rad XML margin;
 actual RR J2 overshoots its limit by **0.0540 rad** at 1.295 s during the
 landing sequence. Body impact, insufficient airborne rotation, the actual
@@ -130,9 +130,9 @@ starts from the live command. After `hold_s` the limbs return to HOME over
 `release_s` (0.3 s). Without `flight`, the replay matches the run above exactly.
 
 ```sh
-python tools/probe_momentum_launch.py --resume tasks/jumper/front_somersault/momentum_launch.json --tuck tuned --landing tuned --video outputs/flight_landing.mp4
-python tools/probe_momentum_launch.py --resume tasks/jumper/front_somersault/momentum_launch.json --tuck tuned --land-at .20 --land-ramp .04 --land-limbs claw
-python tools/probe_momentum_launch.py --resume tasks/jumper/front_somersault/momentum_launch.json --compare-flight --output outputs/flight_compare
+python tools/probe_momentum_launch.py --resume tasks/jumper/frontflip/momentum_launch.json --tuck tuned --landing tuned --video outputs/flight_landing.mp4
+python tools/probe_momentum_launch.py --resume tasks/jumper/frontflip/momentum_launch.json --tuck tuned --land-at .20 --land-ramp .04 --land-limbs claw
+python tools/probe_momentum_launch.py --resume tasks/jumper/frontflip/momentum_launch.json --compare-flight --output outputs/flight_compare
 ```
 
 In flight the angular momentum stays fixed (0.191 N*m*s at takeoff for every
@@ -221,7 +221,7 @@ the palms folded back underneath the body for the original rear-driven roll.
 The fingers start closed and receive a 30 ms opening-target ramp at the same
 contact/COM-triggered PUSH transition as the arms extend. Its LF opening target
 is -0.3 rad (RF mirrored). This is a new CPU physics rollout, slowed to half
-speed for viewing, not a trained policy or successful somersault.
+speed for viewing, not a trained policy or successful frontflip.
 
 `tools/probe_underbody_claw.py` contains the readable `ALIGNMENTS`/`STROKES`
 tables. The `underbody_a` solution preserves the original tucked palm center
@@ -247,7 +247,7 @@ finger excursions during the 105 ms arm-extension phase are about 0.254 rad
 for the aligned preview and 0.509 rad for the original-tuck comparison;
 a 30 ms command ramp does not imply instantaneous servo motion. Larger
 -1.2 rad openings caused self-contact and are not used in these previews.
-Both attempts still land on the body and fail the somersault qualification.
+Both attempts still land on the body and fail the frontflip qualification.
 
 ```sh
 python tools/probe_underbody_claw.py --self-test
@@ -270,7 +270,7 @@ next CPU physics experiment at one-quarter speed. The matching
 
 ```sh
 python tools/probe_underbody_claw.py --relay --self-test
-python tools/probe_underbody_claw.py --resume tasks/jumper/front_somersault/relay_launch.json --output outputs/relay_replay --video outputs/relay_replay.mp4
+python tools/probe_underbody_claw.py --resume tasks/jumper/frontflip/relay_launch.json --output outputs/relay_replay --video outputs/relay_replay.mp4
 ```
 
 `relay.py` adds an experimental middle-drive stage (recorded as stage 7),
@@ -304,7 +304,7 @@ The handoff works, but rotation still trails the original 224.67-degree
 attempt. Both palms had already lost contact when delayed opening triggered,
 and the moving fingers recorded zero ground impulse throughout. This is not
 evidence of an additional spring-powered launch. The attempt records
-**178.38 N** peak non-foot impact and fails the existing somersault gates.
+**178.38 N** peak non-foot impact and fails the existing frontflip gates.
 No failed recording is promoted for training. The required next improvement
 is maintaining useful claw contact through more of the extension stroke.
 
@@ -328,7 +328,7 @@ shoulder rotation and an earlier middle/claw handoff. This remains a failed
 physics prototype; the existing training task/reference is unchanged.
 
 ```sh
-python tools/probe_underbody_claw.py --resume tasks/jumper/front_somersault/overlap_forward_elbows.json --output outputs/overlap_replay --video outputs/overlap_replay.mp4
+python tools/probe_underbody_claw.py --resume tasks/jumper/frontflip/overlap_forward_elbows.json --output outputs/overlap_replay --video outputs/overlap_replay.mp4
 ```
 
 After the original underbody tuck, ALIGN (stage 8) turns all four arm joints
@@ -392,8 +392,8 @@ Run from the repository root, using the installed environment. On Windows,
 replace `python` with `.venv/Scripts/python.exe`.
 
 ```sh
-python tools/search_front_somersault.py --self-test
-python tools/search_front_somersault.py --generations 32 --population 128 --num-envs 16 --video outputs/front_somersault_search/candidate.mp4
+python tools/search_frontflip.py --self-test
+python tools/search_frontflip.py --generations 32 --population 128 --num-envs 16 --video outputs/frontflip_search/candidate.mp4
 ```
 
 This runs on the CPU. It varies bounded joint targets and timings with a
@@ -436,14 +436,14 @@ not a new measurement.
 `--schedule jump` retains the older 27-parameter schedule in `physics.py` for
 comparison. Its JSON parameter files require that explicit flag when resuming.
 
-Each generation saves `outputs/front_somersault_search/best_candidate.npz`,
+Each generation saves `outputs/frontflip_search/best_candidate.npz`,
 its JSON report and `search.json`. Exit code **2** means no candidate qualified;
 it is a completed search, not a simulator crash. `--diagnostic` permits exit 0
 for an unsuccessful experiment without promoting it. Continue exploration with
 a different random seed and the previous best parameters:
 
 ```sh
-python tools/search_front_somersault.py --resume outputs/front_somersault_search/best_candidate.json --seed 23 --generations 32 --population 128 --num-envs 16 --video outputs/front_somersault_search/candidate.mp4
+python tools/search_frontflip.py --resume outputs/frontflip_search/best_candidate.json --seed 23 --generations 32 --population 128 --num-envs 16 --video outputs/frontflip_search/candidate.mp4
 ```
 
 `--resume` warm-starts the parameter mean; it does not restore the optimizer's
@@ -466,26 +466,26 @@ Promotion requires all of the following measured gates:
 | Hardware | Torque within the shared modeled cap (currently 1.7464 N·m, below the XML's 2 N·m ceiling); joint-limit overshoot below 0.01 rad |
 | Rear-claw mechanism | Both rear-drive and claw-push phases deliver more than 0.02 N·s of net forward terrain reaction; the claw-push phase must execute |
 
-Only passing rollouts are written to `ref/front_somersault.npz`. Loading it
+Only passing rollouts are written to `ref/frontflip.npz`. Loading it
 recomputes rotation and qualification from the stored measurements, checks
 float32 channels and joint names, and verifies the model/motor fingerprint.
 Collision checks retain both physics substeps and the strongest self-contact.
 Rear-claw recordings also store controller stage, COM feedback and world-frame
 ground reaction on each foot. The sensor's primary-to-terrain force is negated
 before recording, so positive X impulse means forward propulsion on the robot.
-An assisted ground roll does not count as an aerial somersault: the flight,
+An assisted ground roll does not count as an aerial frontflip: the flight,
 rotation, impact and landing gates above still apply.
 
 ## 2. Train on Colab after qualification
 
-Open [the task notebook](front_somersault_colab.ipynb) in Colab, select a T4 GPU,
+Open [the task notebook](frontflip_colab.ipynb) in Colab, select a T4 GPU,
 and run cells in order. It preserves the main notebook's smoke, resume, replay,
 telemetry and backup flow and adds a strict reference-upload step.
 
 ```python
-REPOSITORY_URL = "https://github.com/Claytonjc-git/jumper.git"
-SOURCE_REVISION = "feat/front-somersault"
-TASK = "jumper.front_somersault"
+REPOSITORY_URL = "https://github.com/Claytonjc-git/jumper-crab-robot.git"
+SOURCE_REVISION = "feat/frontflip"
+TASK = "jumper.frontflip"
 NUM_ENVS = 256
 ITERATIONS = 3000
 ```
@@ -535,7 +535,7 @@ The measured net forward impulses are **0.604 N·s** from the rear drive and
 **0.215 N·s** from the subsequent claw-push phase. Peak sampled torque remains
 **1.746 N·m**. It lands on its back, finishes at about **187.76°**, and records
 **213.52 N** peak non-foot impact. It is an assisted-roll prototype, not a
-qualified somersault or a motion ready for physical hardware.
+qualified frontflip or a motion ready for physical hardware.
 
 A zero-residual native replay of the complete three-second initial both-pad
 reference matched its recorded joints within **2.93e-6 rad** and base height
@@ -543,10 +543,10 @@ within **1.36e-6 m**. Randomization and failure terminations were disabled for
 that comparison so the entire failed trajectory could be checked.
 
 This CPU smoke test builds and trains 16 environments on the qualified reference
-for five updates. It proves stepping and PPO integration, not somersault learning:
+for five updates. It proves stepping and PPO integration, not frontflip learning:
 
 ```powershell
-.venv/Scripts/python.exe scripts/train.py --task jumper.front_somersault --backend native --device cpu --num_envs 16 --max-iterations 5 --headless --no-tensorboard
+.venv/Scripts/python.exe scripts/train.py --task jumper.frontflip --backend native --device cpu --num_envs 16 --max-iterations 5 --headless --no-tensorboard
 ```
 
 The task appears in `scripts/train.py --list`; registry/parity and replay
@@ -556,4 +556,4 @@ terminates the test process. The 18 failures match the pre-change Windows
 baseline (Linux input ABI, encoding/line endings, symlink privileges and socket
 reuse). After the gate change (2026-10-25): **1,199 passed, 19 failed, 27 skipped**.
 The same 19 tests fail on the commit before it. Colab/T4 execution and a successful
-somersault policy remain unverified.
+frontflip policy remain unverified.

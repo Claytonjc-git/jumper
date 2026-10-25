@@ -52,7 +52,7 @@ TASKS = ("jumper.flat", "jumper.tripod", "jumper.ripple", "jumper.tetrapod")
 #: out of `TASKS` is a decision someone wrote down.
 NOT_LOCOMOTION = {
     "jumper.claw_stand",
-    "jumper.front_somersault",
+    "jumper.frontflip",
     # Imitates a fixed choreography: no command, no gait prior, 22 joints instead
     # of 20, and its reward budget is the tracking terms rather than the velocity
     # skeleton's. Nothing it could agree with the four on would mean anything.

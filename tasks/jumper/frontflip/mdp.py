@@ -28,7 +28,7 @@ def read_reference(path: Path, allow_diagnostic: bool = False) -> tuple[dict, di
     """Reject incompatible, malformed or unqualified references before building a scene."""
     if not path.is_file():
         raise FileNotFoundError(
-            f"Somersault reference missing: {path}. Run tools/search_front_somersault.py "
+            f"Frontflip reference missing: {path}. Run tools/search_frontflip.py "
             "first; train only after its physics rollout qualifies. See the task README."
         )
     with np.load(path, allow_pickle=False) as archive:
@@ -114,17 +114,17 @@ def read_reference(path: Path, allow_diagnostic: bool = False) -> tuple[dict, di
         if report.get("qualified") is not True or not measured["qualified"]:
             raise ValueError("Qualified metadata disagrees with its qualification checks")
     if meta.get("angular_velocity_frame") != "world":
-        raise ValueError("Somersault angular velocity must be recorded in world coordinates")
+        raise ValueError("Frontflip angular velocity must be recorded in world coordinates")
     if not qualified and not allow_diagnostic:
         raise ValueError(
-            "Reference is not a qualified forward somersault. Inspect its qualification report "
-            "and continue the physics search. MJRL_FRONT_SOMERSAULT_ALLOW_DIAGNOSTIC=1 "
+            "Reference is not a qualified frontflip. Inspect its qualification report "
+            "and continue the physics search. MJRL_FRONTFLIP_ALLOW_DIAGNOSTIC=1 "
             "allows an explicit environment smoke test only."
         )
     return meta, arrays
 
 
-class FrontSomersaultReference(JumpReference):
+class FrontflipReference(JumpReference):
     """Jump's reference API with measured contacts and angular state for a full revolution."""
 
     def __init__(self, path: Path, device: str, joint_names: list[str],
@@ -133,7 +133,7 @@ class FrontSomersaultReference(JumpReference):
         source = meta["joint_order"]
         missing = set(joint_names) - set(source)
         if missing:
-            raise ValueError(f"Somersault reference missing robot joints: {sorted(missing)}")
+            raise ValueError(f"Frontflip reference missing robot joints: {sorted(missing)}")
         perm = [source.index(name) for name in joint_names]
         self.path, self.meta, self.joint_names = path, meta, list(joint_names)
         self.n = len(arrays["t"])
@@ -171,20 +171,20 @@ class FrontSomersaultReference(JumpReference):
 
 
 @dataclass(kw_only=True)
-class FrontSomersaultCommandCfg(JumpMotionCommandCfg):
+class FrontflipCommandCfg(JumpMotionCommandCfg):
     allow_diagnostic: bool = False
 
     def __post_init__(self):
-        self.class_type = FrontSomersaultCommand
+        self.class_type = FrontflipCommand
 
     def build(self, env):
-        return FrontSomersaultCommand(self, env)
+        return FrontflipCommand(self, env)
 
 
-class FrontSomersaultCommand(JumpMotionCommand):
-    def __init__(self, cfg: FrontSomersaultCommandCfg, env):
+class FrontflipCommand(JumpMotionCommand):
+    def __init__(self, cfg: FrontflipCommandCfg, env):
         # Reuse jump machinery through its per-environment cache, without changing module globals.
-        env._jump_reference = FrontSomersaultReference(
+        env._jump_reference = FrontflipReference(
             Path(cfg.motion_file), env.device, list(env.scene[cfg.entity_name].joint_names),
             cfg.allow_diagnostic,
         )

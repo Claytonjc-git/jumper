@@ -145,11 +145,11 @@ def support_forces(env):
 
 def hands_center_x(env):
     robot = env.scene["robot"]
-    if not hasattr(env, "_somersault_pad_ids"):
+    if not hasattr(env, "_frontflip_pad_ids"):
         names = list(robot.body_names)
-        env._somersault_pad_ids = [names.index(name) for name in
+        env._frontflip_pad_ids = [names.index(name) for name in
                                    FEET[:2] + ("LF_palm_pad_f_link", "RF_palm_pad_f_link")]
-    x = robot.data.body_link_pos_w[:, env._somersault_pad_ids, 0]
+    x = robot.data.body_link_pos_w[:, env._frontflip_pad_ids, 0]
     back = env.scene.sensors["feet_ground_contact"].data.found.reshape(env.num_envs, 6)[:, :2]
     front = env.scene.sensors["claw_front_ground_contact"].data.found.reshape(env.num_envs, 2)
     weights = torch.cat((back, front), dim=1).bool().float()

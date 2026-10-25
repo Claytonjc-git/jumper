@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Search actual CPU physics rollouts for a forward flip, with a strict promotion gate.
 
-python tools/search_front_somersault.py --self-test
-python tools/search_front_somersault.py --generations 8 --population 64 --num-envs 16
-python tools/search_front_somersault.py --resume outputs/front_somersault_search/best_candidate.json
+python tools/search_frontflip.py --self-test
+python tools/search_frontflip.py --generations 8 --population 64 --num-envs 16
+python tools/search_frontflip.py --resume outputs/frontflip_search/best_candidate.json
 
 Exit 2 means search completed without a qualified flip. --diagnostic permits that
 outcome for setup experiments; it never promotes a failed rollout for training.
@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 
 from tasks.jumper.common.constants import HOME
-from tasks.jumper.front_somersault.physics import (
+from tasks.jumper.frontflip.physics import (
     CONTROL_DT, HIGH, LOW, SEED, PhysicsRunner, qualify, save_reference, signed_rotation, targets,
 )
 
@@ -50,7 +50,7 @@ def score(data, report):
 
 def self_test():
     """Synthetic positive/negative controls test validation, not physical feasibility."""
-    from tasks.jumper.front_somersault.staged import RearClawController, SEED as STAGED_SEED
+    from tasks.jumper.frontflip.staged import RearClawController, SEED as STAGED_SEED
 
     controller = RearClawController(STAGED_SEED[None], list(HOME))
     quat = np.array([[1., 0., 0., 0.]])
@@ -142,9 +142,9 @@ def main():
     parser.add_argument("--schedule", choices=("rear-claw", "jump"), default="rear-claw",
                         help="rear drive -> pitch-triggered claw plant/push, or the older jump schedule")
     parser.add_argument("--resume", type=Path, help="best_candidate.json from a previous search")
-    parser.add_argument("--output", type=Path, default=ROOT / "outputs/front_somersault_search")
+    parser.add_argument("--output", type=Path, default=ROOT / "outputs/frontflip_search")
     parser.add_argument("--reference", type=Path,
-                        default=ROOT / "tasks/jumper/front_somersault/ref/front_somersault.npz")
+                        default=ROOT / "tasks/jumper/frontflip/ref/frontflip.npz")
     parser.add_argument("--video", type=Path, help="rerun best candidate through actual physics and record")
     parser.add_argument("--diagnostic", action="store_true", help="allow exit 0 without a qualified flip")
     parser.add_argument("--self-test", action="store_true")
@@ -159,7 +159,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     initial, low, high = SEED, LOW, HIGH
     if args.schedule == "rear-claw":
-        from tasks.jumper.front_somersault.staged import HIGH as high, LOW as low, SEED as initial
+        from tasks.jumper.frontflip.staged import HIGH as high, LOW as low, SEED as initial
     mean = initial.copy()
     if args.resume:
         metadata = json.loads(args.resume.read_text(encoding="utf-8"))
@@ -205,7 +205,7 @@ def main():
     finally:
         runner.close()
     print("QUALIFIED reference saved." if best_report["qualified"] else
-          "No qualified somersault found. Best rollout is diagnostic; training stays gated.")
+          "No qualified frontflip found. Best rollout is diagnostic; training stays gated.")
     print(f"Candidate/report: {args.output}; elapsed {time.monotonic() - start:.1f} s")
     return 0 if best_report["qualified"] or args.diagnostic else 2
 

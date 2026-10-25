@@ -19,8 +19,8 @@ import numpy as np
 
 from probe_underbody_claw import controller_type as original_type
 from tasks.jumper.common.constants import HOME
-from tasks.jumper.front_somersault import physics, staged
-from tasks.jumper.front_somersault.momentum import MomentumMeter, controller_type
+from tasks.jumper.frontflip import physics, staged
+from tasks.jumper.frontflip.momentum import MomentumMeter, controller_type
 
 ROOT = Path(__file__).resolve().parents[1]
 # LM absolute J0/J1/J2 targets [rad]. RM uses HOME-relative named mirroring.
@@ -96,7 +96,7 @@ def self_test():
     data.qvel[:] = 0
     data.qvel[4] = 2
     assert meter.read(data.qpos, data.qvel)[0, 4] > 0, "positive pitch spin lost its sign"
-    params = json.loads((ROOT/"tasks/jumper/front_somersault/ref/diagnostic.json").read_text())["params"]
+    params = json.loads((ROOT/"tasks/jumper/frontflip/ref/diagnostic.json").read_text())["params"]
     v = variant("modest", delay=.01, trigger="peak")
     names = list(HOME)[::-1]
     kind = controller_type(original_type([v]), [v])
@@ -217,7 +217,7 @@ def main():
     if ((args.resume or args.compare) and (args.load_back or any(x is not None for x in
             (args.preset, args.delay, args.trigger, args.opening)))):
         parser.error("resume/compare supply the motion; do not combine with motion-selection flags")
-    source = json.loads((ROOT/"tasks/jumper/front_somersault/ref/diagnostic.json").read_text())
+    source = json.loads((ROOT/"tasks/jumper/frontflip/ref/diagnostic.json").read_text())
     params = source["params"]
     variants = [variant(args.preset or "modest", args.delay or 0., args.load_back,
                         args.trigger or "delay", args.opening or 0.)]
@@ -318,7 +318,7 @@ def main():
                                                        -physics.CONTROL_DT),
                               decision_momentum=instances[-1].launch_momentum[i].tolist(),
                               release_reason=instances[-1].release_reason[i])
-            paths = [Path(__file__), ROOT/"tasks/jumper/front_somersault/momentum.py",
+            paths = [Path(__file__), ROOT/"tasks/jumper/frontflip/momentum.py",
                      ROOT/"tools/probe_underbody_claw.py"]
             digest = hashlib.sha256()
             for path in paths:
