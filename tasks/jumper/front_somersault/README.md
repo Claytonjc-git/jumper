@@ -10,10 +10,87 @@ accumulated-forward-rotation tracking. Existing common and jump files are unchan
 not a trained policy or a successful flip. Its matching `ref/diagnostic.npz` is
 available only for explicit smoke tests. There is deliberately no qualified
 `ref/front_somersault.npz`; ordinary training refuses to start without one.
-The latest [forward-elbow overlap preview](overlap_forward_elbows_slow.mp4)
-tests an earlier shared push; its results and replay settings are below.
+The latest [rearward-middle momentum preview](momentum_launch_preview.mp4)
+shows a complete assisted ground/air roll followed by HOME recovery. It still
+fails the clean aerial-flip gates; its measurements and replay settings follow.
 The [half-speed video](rear_claw_half_speed.mp4) makes the two propulsion stages
 easier to inspect; it contains the same simulated motion with slower playback.
+
+### Rearward middle drive with the original short claw handoff
+
+The [new MP4](momentum_launch_preview.mp4) plays the same CPU rollout first at
+normal speed, then at one-quarter speed. Base motion comes entirely from
+servo/contact physics. It uses the original underbody front-arm alignment,
+with the middle feet swept backward and driven down alongside the rear legs.
+The front shoulders retain their original yaw; the earlier forward-elbow
+experiment below remains a separate comparison.
+
+[`momentum_launch.json`](momentum_launch.json) stores the exact targets,
+timings, source/model hashes, joint order and measured qualification report.
+The `momentum` table in it is editable: `load` and `drive` are absolute LM
+J0/J1/J2 angles, with RM mirrored by HOME-relative joint names. The selected
+load is [0.07870, 0.5356, -1.8271] rad and drive is
+[0.36808, -1.29038, -0.44253] rad. The drive starts with the rear push, ramps
+over 84 ms, continues for 35 ms of claw extension, then lifts smoothly.
+Actual middle/palm support overlap above 1 N is 15 ms.
+
+`tools/probe_momentum_launch.py` reuses the original seven-stage controller,
+keeps both-palm contact and COM gates, and measures whole-robot momentum
+with an independent model reading the live state. No base pose, velocity,
+external impulse, mass, friction or actuator limit is changed. The selected
+handoff adds zero delay after the original contact/COM/reach gates. It was
+chosen by nominal-physics trials, not by predicting a future momentum peak.
+The optional causal `--trigger peak` waits for declining momentum with a
+bounded timeout; that extra wait performed worse here and is not selected.
+
+```sh
+python tools/probe_momentum_launch.py --self-test
+python tools/probe_momentum_launch.py --compare --output outputs/momentum_compare
+python tools/probe_momentum_launch.py --resume tasks/jumper/front_somersault/momentum_launch.json --output outputs/momentum_replay --video outputs/momentum_replay.mp4
+```
+
+The 19-case geometry/timing comparison and 256 bounded refinements were
+followed by 12 delay/peak/opening comparisons on the Windows AMD CPU.
+Opening the fingers to -0.3/-0.6 rad did not improve airborne rotation for
+this selected stroke; the preview keeps them closed. No added spring force
+has been established. The original control reproduced its recorded actual
+joint trajectory exactly. The chosen final run measured:
+
+| Measurement | Original rear/claw | Rearward middle drive |
+|---|---:|---:|
+| Peak forward rotation, including ground roll | 224.67 degrees | 361.23 degrees |
+| Turn in one continuous flight | 149.26 degrees | 187.86 degrees |
+| Longest flight | 0.265 s | 0.275 s |
+| Peak base height | 0.248 m | 0.268 m |
+| Forward travel | 0.254 m | 0.561 m |
+| Rear-foot clearance to first PUSH frame | 65 ms | 35 ms |
+| Peak non-foot impact | 213.52 N | 113.69 N |
+
+The release observation at 0.855 s coincides with this trial's largest
+forward momentum during the prelaunch leg-drive window: 1.968 N*s, with
+1.285 N*s upward momentum. The transition is decided at command time 0.860 s;
+the first recorded PUSH frame is 0.865 s. Those times differ because the
+controller observes the previous state and a stage transition first emits
+the outgoing stage's command. Angular momentum is about the whole robot's
+COM in world coordinates. The [momentum plot](momentum_launch.png) compares
+the original and new launches; matching peak forward momentum does not
+mean peak angular or upward momentum occurs at the same instant.
+
+Middle feet contribute +0.538 N*s forward and +2.004 N*s upward terrain
+impulse across REAR/REACH/PUSH. The palms' net forward impulse during PUSH
+is **-0.326 N*s**, so that part still brakes forward translation. The full
+roll finishes upright and settled, but includes ground contact rather than
+a complete airborne somersault. Self-contact force is zero and peak torque
+stays 1.7464 N*m. All commanded targets retain at least 0.10 rad XML margin;
+actual RR J2 overshoots its limit by **0.0540 rad** at 1.295 s during the
+landing sequence. Body impact, insufficient airborne rotation, the actual
+joint overshoot and braking palm impulse fail qualification. This run is
+not promoted to the training reference or enabled in the training controller.
+
+Validation includes native CPU integration/rendering, momentum/contact/COM
+self-checks with negative controls, timeout and interrupted-drive continuity
+checks, registry/parity tests, Ruff and independent code review. No new
+policy training or physical-robot test was performed for this experiment.
 
 ### Middle-leg lift and forward-arm tuck experiment
 
