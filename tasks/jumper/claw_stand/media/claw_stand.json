@@ -1,0 +1,37 @@
+{
+  "duration_s": 8.9,
+  "frames": 446,
+  "position_rms_rad": 0.26208856753302484,
+  "velocity_rms_rad_s": 0.5830779689828363,
+  "peak_joint_speed_rad_s": 2.5067083069640503,
+  "height_min_m": 0.10647000501726031,
+  "height_max_m": 0.13500002339000758,
+  "max_tilt_deg": 37.24225320779297,
+  "minimum_joint_limit_margin_rad": 0.1,
+  "minimum_foot_mesh_z_m": -1.3530843112619095e-16,
+  "maximum_support_gap_m": 0.00021976170977780138,
+  "minimum_all_collision_mesh_z_m": -1.3530843112619095e-16,
+  "minimum_com_support_margin_m": 0.017663197427426097,
+  "worst_inter_leg_contact_m": 0.0,
+  "peak_static_minimax_torque_Nm": 1.3481778308652288,
+  "peak_static_torque_time_s": 8.36,
+  "high_hold_static_minimax_torque_Nm": 0.4812949020103593,
+  "site_height_min_max_m": [
+    [
+      0.007483053938604989,
+      0.007353483865971158,
+      0.008571818127281972,
+      0.008596998318487896,
+      0.008359009691171773,
+      0.00836964465537252
+    ],
+    [
+      0.020409765586548025,
+      0.020872306594039824,
+      0.016378074297360382,
+      0.0164608025208787,
+      0.0089645416336694,
+      0.008957280693258638
+    ]
+  ]
+}
