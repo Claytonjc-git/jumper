@@ -496,10 +496,9 @@ to 512 or 1024 only if memory and throughput allow, using a new run. Start with
 3,000 updates, inspect replay, and continue in blocks if the curves are still
 improving. No iteration count guarantees convergence.
 
-Upload the **qualified** NPZ when prompted.
-Keep the reference in the downloaded backup and reupload the identical file
-when continuing: the reference bytes, source revision and runtime configuration
-are part of the continuation checks. Set `SIM_COMMAND = "Sampled commands"`,
+The notebook validates the qualified NPZ from the checkout; nothing needs uploading.
+Enable `UPLOAD_REFERENCE` only to train on a different reference. The reference
+bytes, source revision and runtime configuration are part of the continuation checks. Set `SIM_COMMAND = "Sampled commands"`,
 `RUN_EVALUATION = False` (the standard evaluator measures walking velocity),
 `RECORD_JOINTS = True`, and `SIM_SECONDS = 20` for repeated attempts and a clip
 longer than 15 seconds. The notebook already supplies these defaults.
