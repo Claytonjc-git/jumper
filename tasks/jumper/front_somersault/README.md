@@ -5,16 +5,43 @@ rear-leg drive → claw plant/push → tuck → land → HOME. It uses the exist
 actions and observations, with task-local orientation, angular-velocity and
 accumulated-forward-rotation tracking. Existing common and jump files are unchanged.
 
-**A complete somersault has not been found.** The shipped
-[`candidate_physics.mp4`](candidate_physics.mp4) is a failed physics experiment,
-not a trained policy or a successful flip. Its matching `ref/diagnostic.npz` is
-available only for explicit smoke tests. There is deliberately no qualified
-`ref/front_somersault.npz`; ordinary training refuses to start without one.
-The latest [rearward-middle momentum preview](momentum_launch_preview.mp4)
-shows a complete assisted ground/air roll followed by HOME recovery. It still
-fails the clean aerial-flip gates; its measurements and replay settings follow.
-The [half-speed video](rear_claw_half_speed.mp4) makes the two propulsion stages
-easier to inspect; it contains the same simulated motion with slower playback.
+`ref/diagnostic.json` keeps the base rear-claw parameters the probes start from.
+Its NPZ predates the 2026-10-25 gate change and no longer loads as a reference.
+
+**A qualified physics reference exists:** [`ref/front_somersault.npz`](ref/front_somersault.npz)
+passes all 14 qualification gates in nominal CPU physics. The
+[video](front_somersault.mp4) shows it. It is an open-loop servo schedule, not a trained
+policy, and it has not run on the robot. The reference is the `tuned` tuck with
+the `tuned` landing (see below), saved by:
+
+```sh
+python tools/probe_momentum_launch.py --resume tasks/jumper/front_somersault/momentum_launch.json --tuck tuned --landing tuned --reference tasks/jumper/front_somersault/ref/front_somersault.npz --video tasks/jumper/front_somersault/front_somersault.mp4
+```
+
+| Measurement | Value |
+|---|---:|
+| Flight turn / total turn | 272.9 / 360.0 deg |
+| Longest flight | 0.31 s |
+| Claw spin (pitch momentum added during PUSH) | 0.145 N*m*s |
+| Peak chassis / limb terrain force | 0 / 34.9 N |
+| Joint overshoot, HOME error | 0 rad, 0.019 rad RMS |
+
+The impact and claw gates changed on 2026-10-25. The robot weighs 2.54 kg (25 N):
+
+- `no_chassis_impact`: shell terrain force below 10 N.
+- `limb_impact_bounded`: terrain force on palms, calves, fingers and other
+  non-pad limb links below 50 N. The old gate allowed 1 N on any non-pad geom.
+  It failed on the palm housing, which carries most of the claw push.
+- `claw_spin` replaces `claw_propulsion`. The claws must add at least
+  0.05 N*m*s of forward pitch momentum during PUSH. The PUSH brakes forward
+  (-0.326 N*s), and that braking below the COM produces 70% of the takeoff spin.
+  The old gate required forward impulse, which reduces the spin.
+
+The training terminations use the same 10 N and 50 N limits. A negative control,
+the original tuck with claws extended, lands on the shell at 214.7 N and fails both
+gates. In the training environment with zero residual, 1 of 8 randomized
+environments (foot friction, COM offset) completed the flip. The other 7 failed
+at landing, about 1.28 s. Training must close that gap.
 
 ### Rearward middle drive with the original short claw handoff
 
@@ -161,7 +188,7 @@ landing force falls to 34.9 N with 272.9 degrees of flight turn and no self-cont
 The remaining contacts are flat claw fingers, palms and rear calves (up to 18 N
 during recovery). Standing at HOME records no non-foot force. Separately, the hard
 palm links and middle calves scrape the floor during the launch (30.3 N at
-0.815 s), so `no_body_impact` also fails before takeoff.
+0.815 s). Under the revised limb limit of 50 N, this run qualifies (see the top).
 
 ### Middle-leg lift and forward-arm tuck experiment
 
@@ -469,7 +496,7 @@ to 512 or 1024 only if memory and throughput allow, using a new run. Start with
 3,000 updates, inspect replay, and continue in blocks if the curves are still
 improving. No iteration count guarantees convergence.
 
-Upload the **qualified** NPZ when prompted. The diagnostic fixture is rejected.
+Upload the **qualified** NPZ when prompted.
 Keep the reference in the downloaded backup and reupload the identical file
 when continuing: the reference bytes, source revision and runtime configuration
 are part of the continuation checks. Set `SIM_COMMAND = "Sampled commands"`,
@@ -483,7 +510,8 @@ Tracking starts with the jump recipe's scales, plus orientation error scale
 starting settings, not convergence measurements. Episode duration is the
 reference length plus 0.5 s. Training uses 80% random reference-state starts
 (including angular velocity) and 20% HOME starts; replay starts from HOME.
-Inversion is allowed; non-foot impacts and self-collisions terminate attempts.
+Inversion is allowed. Shell force above 10 N, limb-link force above 50 N and
+self-collisions terminate attempts.
 
 Watch the individual joint, orientation, angular-velocity, forward-turn and
 contact tracking rewards together with episode length and impact terminations.
@@ -514,19 +542,18 @@ reference matched its recorded joints within **2.93e-6 rad** and base height
 within **1.36e-6 m**. Randomization and failure terminations were disabled for
 that comparison so the entire failed trajectory could be checked.
 
-The explicit diagnostic CPU test builds and trains 16 environments for five
-updates; it proves stepping and PPO integration, not somersault learning:
+This CPU smoke test builds and trains 16 environments on the qualified reference
+for five updates. It proves stepping and PPO integration, not somersault learning:
 
 ```powershell
-$env:MJRL_FRONT_SOMERSAULT_REFERENCE=(Resolve-Path tasks/jumper/front_somersault/ref/diagnostic.npz).Path
-$env:MJRL_FRONT_SOMERSAULT_ALLOW_DIAGNOSTIC='1'
 .venv/Scripts/python.exe scripts/train.py --task jumper.front_somersault --backend native --device cpu --num_envs 16 --max-iterations 5 --headless --no-tensorboard
-Remove-Item Env:MJRL_FRONT_SOMERSAULT_REFERENCE,Env:MJRL_FRONT_SOMERSAULT_ALLOW_DIAGNOSTIC
 ```
 
 The task appears in `scripts/train.py --list`; registry/parity and replay
-contracts pass. Full-suite result with the diagnostic fixture: **1,200 passed,
+contracts pass. Full-suite result before the gate change: **1,200 passed,
 18 failed, 27 skipped**, with one Windows SIGTERM test deselected because it
 terminates the test process. The 18 failures match the pre-change Windows
 baseline (Linux input ABI, encoding/line endings, symlink privileges and socket
-reuse). Colab/T4 execution and a successful somersault policy remain unverified.
+reuse). After the gate change (2026-10-25): **1,199 passed, 19 failed, 27 skipped**.
+The same 19 tests fail on the commit before it. Colab/T4 execution and a successful
+somersault policy remain unverified.

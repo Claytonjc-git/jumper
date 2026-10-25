@@ -197,6 +197,8 @@ def main():
     parser.add_argument("--land-ramp", type=float, default=.06)
     parser.add_argument("--land-limbs", nargs="+", choices=LAND_LIMBS, default=list(LAND_LIMBS))
     parser.add_argument("--landing", choices=LANDINGS, help="named landing preset")
+    parser.add_argument("--reference", type=Path,
+                        help="save a single qualified run here as the training reference")
     parser.add_argument("--compare-flight", action="store_true",
                         help="grid of rear tuck, claw flight and landing time on --resume")
     args = parser.parse_args()
@@ -208,6 +210,8 @@ def main():
     flight_flags = (args.tuck, args.claw_flight, args.land_at, args.landing)
     if args.compare_flight and (not args.resume or any(x is not None for x in flight_flags)):
         parser.error("--compare-flight needs --resume and supplies the flight settings itself")
+    if args.reference and (args.compare or args.compare_flight):
+        parser.error("--reference saves one run; drop --compare/--compare-flight")
     if args.video and (args.compare or args.compare_flight):
         parser.error("select a single candidate before recording video")
     if ((args.resume or args.compare) and (args.load_back or any(x is not None for x in
@@ -325,11 +329,17 @@ def main():
                         momentum_order=["Px", "Py", "Pz", "Hx", "Hy", "Hz"],
                         momentum_frame="world; angular momentum about whole-robot COM",
                         source_sha256=digest.hexdigest(), physics_fingerprint=physics.fingerprint(),
-                        training_reference=False)
+                        training_reference=bool(args.reference) and report["qualified"])
             stem = f"variant_{i:02d}"
             (args.output/f"{stem}.json").write_text(json.dumps(meta, indent=2)+"\n")
-            np.savez_compressed(args.output/f"{stem}.npz", momentum=momentum[i],
-                                **{k: a for k, a in data.items() if isinstance(a, np.ndarray)})
+            np.savez_compressed(args.output/f"{stem}.npz", **{
+                **{k: a for k, a in data.items() if isinstance(a, np.ndarray)},
+                "momentum": momentum[i]})
+            if args.reference:
+                if not report["qualified"]:
+                    raise SystemExit(f"not qualified; reference not saved: {report['checks']}")
+                physics.save_reference(args.reference, data, params, variant=v)
+                print(f"QUALIFIED reference saved: {args.reference}", flush=True)
             summaries.append(meta)
             print(json.dumps(dict(variant=v, **report)), flush=True)
         (args.output/"summary.json").write_text(json.dumps(summaries, indent=2)+"\n")

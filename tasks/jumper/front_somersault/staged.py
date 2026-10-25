@@ -42,7 +42,16 @@ def summarize(data):
         "claw_push_executed": bool((stage == RearClawController.PUSH).any()),
         "rear_forward_impulse_Ns": float(force[stage == RearClawController.REAR, 4:, 0].sum() * dt),
         "claw_forward_impulse_Ns": float(force[stage == RearClawController.PUSH, :2, 0].sum() * dt),
+        "claw_pitch_momentum_Nms": claw_spin(data),
     }
+
+
+def claw_spin(data):
+    """World-Y angular momentum gained from the frame before PUSH to its last frame."""
+    push = np.flatnonzero(data["stage"] == RearClawController.PUSH)
+    if "momentum" not in data or not len(push):
+        return 0.0
+    return float(data["momentum"][push[-1], 4] - data["momentum"][max(push[0] - 1, 0), 4])
 
 
 class RearClawController:

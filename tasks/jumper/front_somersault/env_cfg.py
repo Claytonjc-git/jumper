@@ -17,7 +17,10 @@ from ..common.dance.rewards import peak_actuator_force, torque_headroom_cost
 from ..jump.env_cfg import env_cfg as jump_env_cfg
 from ..jump.mdp.observations import FUTURE_OFFSETS
 from . import mdp
-from .physics import CONTROL_DT, PHYSICS_DT, SUPPORT_GEOMS, T_GO, robot_cfg, sensors
+from .physics import (
+    CHASSIS_FORCE_LIMIT, CONTROL_DT, LIMB_FORCE_LIMIT, PHYSICS_DT, SUPPORT_GEOMS, T_GO, robot_cfg,
+    sensors,
+)
 
 REFERENCE = Path(__file__).resolve().parent / "ref" / "front_somersault.npz"
 
@@ -37,7 +40,7 @@ def env_cfg(asset: Path | None = None, play: bool = False):
             "robot", geom_names=SUPPORT_GEOMS,
         )
 
-    # A flip may invert freely; non-foot impacts and inter-leg contacts end an attempt.
+    # A flip may invert freely; shell or hard limb impacts and inter-leg contacts end an attempt.
     cfg.scene.sensors = tuple(
         sensor for sensor in cfg.scene.sensors or ()
         if sensor.name not in ("body_ground_contact", "feet_ground_contact")
@@ -61,9 +64,10 @@ def env_cfg(asset: Path | None = None, play: bool = False):
     # External pushes obscure the initial physics-reference feasibility measurement.
     cfg.events.pop("push_robot", None)
     cfg.terminations.pop("fell_over", None)
-    for name in ("body_ground_contact", "self_collision"):
+    for name, limit in (("chassis_ground_contact", CHASSIS_FORCE_LIMIT),
+                        ("body_ground_contact", LIMB_FORCE_LIMIT), ("self_collision", 1.0)):
         cfg.terminations[name] = TerminationTermCfg(
-            func=mdp.collision_failure, params={"sensor_name": name, "force_threshold": 1.0}
+            func=mdp.collision_failure, params={"sensor_name": name, "force_threshold": limit}
         )
 
     # Starting scales in rad² and (rad/s)², pending measured policy tracking runs.

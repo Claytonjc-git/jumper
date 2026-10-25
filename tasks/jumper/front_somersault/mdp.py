@@ -36,11 +36,12 @@ def read_reference(path: Path, allow_diagnostic: bool = False) -> tuple[dict, di
         keys = (
             "t", "q", "qd", "q_cmd", "base_pos", "base_quat", "base_lin_vel",
             "base_ang_vel", "foot_pos", "contact", "forward_rotation", "tau",
-            "body_force", "self_force",
+            "body_force", "self_force", "chassis_force",
         )
         arrays = {key: archive[key] for key in keys}
         if meta.get("schedule") == "rear-claw":
-            arrays.update({key: archive[key] for key in ("stage", "foot_force", "com_ahead")})
+            arrays.update({key: archive[key]
+                           for key in ("stage", "foot_force", "com_ahead", "momentum")})
             if meta.get("foot_force_convention") != "world-frame terrain reaction acting on each foot":
                 raise ValueError("Rear-claw reference must record terrain reaction acting on the feet")
     names = meta["joint_order"]
@@ -52,9 +53,10 @@ def read_reference(path: Path, allow_diagnostic: bool = False) -> tuple[dict, di
         "base_pos": (n, 3), "base_quat": (n, 4), "base_lin_vel": (n, 3),
         "base_ang_vel": (n, 3), "foot_pos": (n, 6, 3), "contact": (n, 6),
         "forward_rotation": (n,), "tau": (n, joints), "body_force": (n,), "self_force": (n,),
+        "chassis_force": (n,),
     }
     if meta.get("schedule") == "rear-claw":
-        shapes.update(stage=(n,), foot_force=(n, 6, 3), com_ahead=(n,))
+        shapes.update(stage=(n,), foot_force=(n, 6, 3), com_ahead=(n,), momentum=(n, 6))
     for key, array in arrays.items():
         if array.shape != shapes[key] or array.dtype != np.float32:
             raise ValueError(f"{key}: expected float32 {shapes[key]}, got {array.dtype} {array.shape}")

@@ -42,7 +42,7 @@ def score(data, report):
             - 2 * max(0, data["joint_limit_violation"] - .01))
     if data.get("schedule") == "rear-claw":
         value += (6 * np.clip(report["peak_forward_rotation_deg"] / 360, 0, 1)
-                  + 3 * report["checks"]["claw_propulsion"]
+                  + 3 * report["checks"]["claw_spin"]
                   + np.clip(report["rear_forward_impulse_Ns"], 0, .5)
                   + 4 * np.clip(report["forward_travel_m"], 0, .4))
     return value
@@ -93,7 +93,7 @@ def self_test():
     good = dict(
         t=t, q=np.tile(list(HOME.values()), (len(t), 1)), joint_names=names,
         base_quat=quat, forward_rotation=rotation, contact=contact,
-        body_force=np.zeros(len(t)), self_force=np.zeros(len(t)),
+        body_force=np.zeros(len(t)), self_force=np.zeros(len(t)), chassis_force=np.zeros(len(t)),
         tau=np.zeros((len(t), len(HOME))), base_lin_vel=np.zeros((len(t), 3)),
         base_ang_vel=np.zeros((len(t), 3)), base_pos=np.tile([0., 0., .2], (len(t), 1)),
         joint_limit_violation=0.,
@@ -101,22 +101,26 @@ def self_test():
     assert qualify(good)["qualified"], "positive validation control failed"
     rear_only = dict(good, schedule="rear-claw", stage=np.ones(len(t)),
                      foot_force=np.zeros((len(t), 6, 3)))
-    assert not qualify(rear_only)["qualified"], "rear-only flip passed the required claw propulsion gate"
+    assert not qualify(rear_only)["qualified"], "rear-only flip passed the required claw spin gate"
     staged_good = copy.deepcopy(rear_only)
     staged_good["stage"][(t >= .30) & (t < .35)] = RearClawController.REAR
     staged_good["stage"][(t >= .35) & (t < .39)] = RearClawController.PUSH
     staged_good["foot_force"][(t >= .30) & (t < .35), 4:, 0] = 1.
-    staged_good["foot_force"][(t >= .35) & (t < .39), :2, 0] = 1.
-    assert qualify(staged_good)["qualified"], "positive rear-plus-claw propulsion control failed"
-    staged_good["foot_force"] *= -1
-    assert not qualify(staged_good)["qualified"], "backward claw reaction passed forward propulsion"
+    staged_good["momentum"] = np.zeros((len(t), 6))
+    staged_good["momentum"][t >= .35, 4] = np.minimum((t[t >= .35] - .345) * 2, .08)
+    assert qualify(staged_good)["qualified"], "positive rear-plus-claw spin control failed"
+    staged_good["momentum"][:, 4] *= -1
+    assert not qualify(staged_good)["qualified"], "backward claw spin passed the claw spin gate"
     for key, value in (("contact", np.ones_like(contact)),
                        ("forward_rotation", -rotation),
                        ("forward_rotation", np.zeros_like(rotation)),
-                       ("body_force", np.ones(len(t)) * 2)):
+                       ("body_force", np.where(t == t[20], 60., 0.)),
+                       ("chassis_force", np.where(t == t[20], 20., 0.))):
         bad = copy.copy(good)
         bad[key] = value
         assert not qualify(bad)["qualified"], f"invalid {key} passed qualification"
+    # A grounded limb brush under 50 N is allowed; only the gates above may reject.
+    assert qualify(dict(good, body_force=np.where(t == t[20], 40., 0.)))["qualified"]
     multiple_hops = copy.copy(good)
     multiple_hops["contact"] = contact.copy()
     multiple_hops["contact"][(t >= .795) & (t <= .805)] = 1

@@ -27,8 +27,13 @@ from ..common.constants import (
     CHASSIS_LINKS, EFFORT_LIMIT, FEET, FOOT_GEOMS, HOME, LIMB_LINKS, TIP_LINKS,
     get_jumper_robot_cfg,
 )
+from .momentum import MomentumMeter
 
 KP, KD = 10.0, 0.5
+# Peak terrain force [N] allowed on the shell and on limb links (palms, calves, fingers).
+CHASSIS_FORCE_LIMIT, LIMB_FORCE_LIMIT = 10.0, 50.0
+# Forward pitch momentum [N*m*s] the claw PUSH stage must add about the whole-robot COM.
+CLAW_SPIN_MIN = 0.05
 PHYSICS_DT, CONTROL_DT = 0.0025, 0.005
 T_GO, DURATION = 0.30, 3.0
 FRONT_PADS = ("LF_palm_pad_f_link_meshcol", "RF_palm_pad_f_link_meshcol")
@@ -89,6 +94,14 @@ def sensors(history=2):
         ContactSensorCfg(
             name="claw_front_ground_contact",
             primary=ContactMatch(mode="geom", pattern=FRONT_PADS, entity="robot"),
+            secondary=ContactMatch(mode="body", pattern="terrain"),
+            fields=("found", "force"), reduce="netforce", num_slots=1,
+            history_length=history,
+        ),
+        ContactSensorCfg(
+            name="chassis_ground_contact",
+            primary=ContactMatch(mode="geom", pattern=tuple(f"{n}_meshcol" for n in CHASSIS_LINKS),
+                                 entity="robot"),
             secondary=ContactMatch(mode="body", pattern="terrain"),
             fields=("found", "force"), reduce="netforce", num_slots=1,
             history_length=history,
@@ -229,7 +242,8 @@ def qualify(data):
         "airborne": longest * CONTROL_DT >= .08,
         "full_forward_turn": abs(float(rotation[-1]) - 2 * np.pi) < .35,
         "turn_in_flight": flight_turn >= 1.5 * np.pi,
-        "no_body_impact": float(data["body_force"].max()) < 1.0,
+        "no_chassis_impact": float(data["chassis_force"].max()) < CHASSIS_FORCE_LIMIT,
+        "limb_impact_bounded": float(data["body_force"].max()) < LIMB_FORCE_LIMIT,
         "no_leg_collision": float(data["self_force"].max()) < 1.0,
         "upright_landing": bool((upright[last] > np.cos(np.radians(15))).all()),
         "feet_landed": bool((data["contact"][last].sum(axis=1) >= 3).all()),
@@ -246,8 +260,9 @@ def qualify(data):
         staged = summarize(data)
         # 0.02 N*s is measured forward reaction, not merely visiting a phase.
         checks["rear_propulsion"] = staged["rear_forward_impulse_Ns"] > .02
-        checks["claw_propulsion"] = (staged["claw_push_executed"]
-                                     and staged["claw_forward_impulse_Ns"] > .02)
+        # Braking at the claws, below the COM, is what spins the robot nose-down.
+        checks["claw_spin"] = (staged["claw_push_executed"]
+                               and staged["claw_pitch_momentum_Nms"] >= CLAW_SPIN_MIN)
     return {
         "qualified": all(checks.values()), "checks": checks,
         "longest_flight_s": longest * CONTROL_DT,
@@ -257,11 +272,12 @@ def qualify(data):
         "home_rms_rad": home_error,
         "peak_torque_Nm": float(np.abs(data["tau"]).max()),
         "peak_body_force_N": float(data["body_force"].max()),
+        "peak_chassis_force_N": float(data["chassis_force"].max()),
         **staged,
     }
 
 
-def save_reference(path, data, params, *, diagnostic=False):
+def save_reference(path, data, params, *, diagnostic=False, variant=None):
     report = qualify(data)
     if not report["qualified"] and not diagnostic:
         raise ValueError("unqualified rollout may only be saved as a diagnostic candidate")
@@ -275,12 +291,15 @@ def save_reference(path, data, params, *, diagnostic=False):
         "angular_velocity_frame": "world", "source": "native physics rollout; no state animation",
         "schedule": data.get("schedule", "jump"),
         "foot_force_convention": "world-frame terrain reaction acting on each foot",
+        "momentum_frame": "world [Px Py Pz Hx Hy Hz]; angular momentum about whole-robot COM",
+        "variant": variant,
     }
     out = {k: np.asarray(data[k], dtype=np.float32) for k in (
         "t", "q", "qd", "q_cmd", "tau", "base_pos", "base_quat", "base_lin_vel",
         "base_ang_vel", "foot_pos", "contact", "forward_rotation", "body_force", "self_force",
+        "chassis_force",
     )}
-    for key in ("stage", "foot_force", "com_ahead"):
+    for key in ("stage", "foot_force", "com_ahead", "momentum"):
         if key in data:
             out[key] = np.asarray(data[key], dtype=np.float32)
     path = Path(path)
@@ -302,6 +321,7 @@ class PhysicsRunner:
         self.env = ManagerBasedRlEnv(cfg=scene_cfg(num_envs), device="cpu")
         self.robot = self.env.scene.entities["robot"]
         self.names = list(self.robot.joint_names)
+        self.meter = MomentumMeter(self.env.sim.mj_model, self.robot.indexing.root_body_id)
         self.feet = [list(self.robot.body_names).index(n) for n in FEET]
         self.times = np.arange(round(DURATION / CONTROL_DT) + 1) * CONTROL_DT
 
@@ -328,7 +348,8 @@ class PhysicsRunner:
         command_t = torch.tensor(command, dtype=torch.float32)
         records = {k: [] for k in ("q", "qd", "tau", "base_pos", "base_quat",
                                    "base_lin_vel", "base_ang_vel", "foot_pos", "contact",
-                                   "body_force", "self_force", "qpos", "stage",
+                                   "body_force", "self_force", "chassis_force", "qpos",
+                                   "qvel", "stage",
                                    "foot_force", "com_ahead")}
         context = nullcontext(None)
         if video is not None:
@@ -374,7 +395,7 @@ class PhysicsRunner:
                 base_quat=state.root_link_quat_w,
                 base_lin_vel=state.root_link_lin_vel_w, base_ang_vel=state.root_link_ang_vel_w,
                 foot_pos=state.body_link_pos_w[:, self.feet] - env.scene.env_origins[:, None, :],
-                qpos=env.sim.data.qpos,
+                qpos=env.sim.data.qpos, qvel=env.sim.data.qvel,
             )
             values["contact"] = support_contacts(env).float()
             # The sensor stores primary -> terrain; reaction on the robot is opposite.
@@ -386,7 +407,8 @@ class PhysicsRunner:
                 controller.command_stage if controller is not None and k else
                 np.full(env.num_envs, -1), dtype=torch.float32,
             )
-            for name, key in (("body_ground_contact", "body_force"), ("self_collision", "self_force")):
+            for name, key in (("body_ground_contact", "body_force"), ("self_collision", "self_force"),
+                              ("chassis_ground_contact", "chassis_force")):
                 force = env.scene.sensors[name].data.force_history
                 values[key] = force.norm(dim=-1).reshape(env.num_envs, -1).amax(dim=1)
             for key, value in values.items():
@@ -398,6 +420,7 @@ class PhysicsRunner:
             data.update(t=self.times.copy(), q_cmd=command[i], joint_names=self.names)
             data["schedule"] = "rear-claw" if controller is not None else "jump"
             data["forward_rotation"] = signed_rotation(data["base_quat"])
+            data["momentum"] = self.meter.read(data["qpos"], data["qvel"])
             data["joint_limit_violation"] = float(np.maximum(
                 limits[:, 0] - data["q"], data["q"] - limits[:, 1]).max())
             if not all(np.isfinite(v).all() for v in data.values() if isinstance(v, np.ndarray)):

@@ -1,0 +1,183 @@
+{
+  "joint_order": [
+    "LF_J0_joint",
+    "LF_J1_joint",
+    "LF_J2_joint",
+    "LF_J3_joint",
+    "LF_J4_joint",
+    "RF_J0_joint",
+    "RF_J1_joint",
+    "RF_J2_joint",
+    "RF_J3_joint",
+    "RF_J4_joint",
+    "LM_J0_joint",
+    "LM_J1_joint",
+    "LM_J2_joint",
+    "RM_J0_joint",
+    "RM_J1_joint",
+    "RM_J2_joint",
+    "LR_J0_joint",
+    "LR_J1_joint",
+    "LR_J2_joint",
+    "RR_J0_joint",
+    "RR_J1_joint",
+    "RR_J2_joint"
+  ],
+  "rec_hz": 200.0,
+  "control_hz": 200.0,
+  "t_go": 0.3,
+  "go_frame": 60,
+  "stand_base_z": 0.1064700037240982,
+  "model_fingerprint": "98d6af083931e8244c0d90e77327ccedba1f5dcfbbba1190cbb7ae98e1e28ae3",
+  "KP": 10.0,
+  "KD": 0.5,
+  "qualified": true,
+  "diagnostic": false,
+  "qualification": {
+    "qualified": true,
+    "checks": {
+      "airborne": true,
+      "full_forward_turn": true,
+      "turn_in_flight": true,
+      "no_chassis_impact": true,
+      "limb_impact_bounded": true,
+      "no_leg_collision": true,
+      "upright_landing": true,
+      "feet_landed": true,
+      "home_recovered": true,
+      "settled": true,
+      "torque_bounded": true,
+      "joint_limits": true,
+      "rear_propulsion": true,
+      "claw_spin": true
+    },
+    "longest_flight_s": 0.31,
+    "forward_turn_deg": 360.0459899902344,
+    "flight_turn_deg": 272.8854550792522,
+    "peak_height_m": 0.27238380908966064,
+    "home_rms_rad": 0.01902324882595783,
+    "peak_torque_Nm": 1.746399998664856,
+    "peak_body_force_N": 34.90488052368164,
+    "peak_chassis_force_N": 0.0,
+    "peak_forward_rotation_deg": 369.7650451660156,
+    "forward_travel_m": 0.39204975962638855,
+    "claw_push_executed": true,
+    "rear_forward_impulse_Ns": 0.24598343670368195,
+    "claw_forward_impulse_Ns": -0.3262008726596832,
+    "claw_pitch_momentum_Nms": 0.1446670954950423
+  },
+  "params": [
+    0.5231582357258519,
+    -1.2079596544974327,
+    -1.8634799423365416,
+    0.06779784560653149,
+    -0.38749775280780957,
+    -1.5572667983909625,
+    -1.1,
+    -1.1539403803012465,
+    0.07669758598703669,
+    0.6738291206350021,
+    -2.0743763942136813,
+    -0.9980929518023983,
+    -0.6876165574914234,
+    1.1845545165955285,
+    -1.8047536669891593,
+    1.249909654263614,
+    -2.098912230677561,
+    1.013290127700139,
+    0.27530175726463685,
+    0.06326710887705358,
+    0.10626707977900413,
+    0.029844770696987287,
+    0.10693791635073471,
+    0.2041986050294792
+  ],
+  "angular_velocity_frame": "world",
+  "source": "native physics rollout; no state animation",
+  "schedule": "rear-claw",
+  "foot_force_convention": "world-frame terrain reaction acting on each foot",
+  "momentum_frame": "world [Px Py Pz Hx Hy Hz]; angular momentum about whole-robot COM",
+  "variant": {
+    "yaw": -0.5507,
+    "opening": 0.0,
+    "open_seconds": 0.03,
+    "alignment": "original",
+    "push_trigger": "com",
+    "momentum": {
+      "middle_enabled": true,
+      "preset": "refined",
+      "load": [
+        0.07870185323206091,
+        0.5356,
+        -1.8271
+      ],
+      "drive": [
+        0.36808009584719914,
+        -1.290376170012531,
+        -0.4425293611594749
+      ],
+      "middle_start_s": 0.0009092335470436028,
+      "middle_ramp_s": 0.08417292193102363,
+      "middle_hold_s": 0.03546798583998371,
+      "claw_delay_s": 0.0,
+      "trigger": "delay",
+      "max_wait_s": 0.02,
+      "flight": {
+        "tuck": {
+          "LF": [
+            -0.4645,
+            0.5933,
+            -1.2077,
+            -1.9667
+          ],
+          "LM": [
+            -0.1994,
+            0.6752,
+            -1.2797
+          ],
+          "LR": [
+            -0.1831,
+            0.3906,
+            -0.8993
+          ]
+        },
+        "land": [
+          {
+            "limbs": [
+              "claw"
+            ],
+            "at_s": 0.2023,
+            "ramp_s": 0.04
+          },
+          {
+            "limbs": [
+              "middle",
+              "rear"
+            ],
+            "at_s": 0.2947,
+            "ramp_s": 0.04
+          }
+        ],
+        "land_pose": {
+          "LF": [
+            -0.5507,
+            -1.166,
+            -0.2417,
+            -1.3452
+          ],
+          "LM": [
+            -0.0927,
+            0.3828,
+            -2.1408
+          ],
+          "LR": [
+            0.5701,
+            0.2846,
+            -1.7418
+          ]
+        },
+        "hold_s": 0.1755
+      }
+    }
+  }
+}
