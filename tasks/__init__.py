@@ -64,6 +64,7 @@ from .jumper import gesture_bow  # noqa: F401,E402
 from .jumper import gesture_hello  # noqa: F401,E402
 from .jumper import gesture_paw  # noqa: F401,E402
 from .jumper import claw_stand  # noqa: F401,E402
+from .jumper import front_somersault  # noqa: F401,E402
 from .jumper import gesture_salute  # noqa: F401,E402
 from .jumper import jump  # noqa: F401,E402
 from .jumper import posture  # noqa: F401,E402
