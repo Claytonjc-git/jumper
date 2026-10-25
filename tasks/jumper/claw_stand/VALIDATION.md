@@ -65,6 +65,8 @@ python -m ruff check tools/make_claw_stand_clip.py tasks/jumper/claw_stand tasks
 ```
 
 The new task is listed; dry resolution and all **21 registry tests pass**.
+After the user-authorized one-line addition to the parity inventory, the
+combined registry/parity check passes all **25 tests**.
 The CPU smoke run exits successfully after five learning iterations / 1920
 environment transitions. Lint passes. The smoke policy is untrained: its final
 mean episode length was 11.08 steps, versus the 222-step training horizon, and
@@ -82,11 +84,13 @@ python -m pytest tests/ -q \
   --deselect=tests/test_tensorboard.py::test_sigterm_runs_the_finally_blocks
 ```
 
-Result: **1196 passed, 19 failed, 27 skipped, 1 deselected**, 129.30 s.
-One failure is the explicit non-locomotion task inventory in
-`tests/test_task_parity.py`: it needs `"jumper.claw_stand"` in `NOT_LOCOMOTION`.
-That test-file edit falls outside the requested new-task/tool scope and awaits
-the user's permission.
+The first diagnostic run returned **1196 passed, 19 failed, 27 skipped,
+1 deselected** in 129.30 s. Its task-inventory failure was fixed by adding
+`"jumper.claw_stand"` to `NOT_LOCOMOTION` in `tests/test_task_parity.py`, with
+the user's explicit permission for this one-line scope extension. All four
+parity tests now pass. The final full diagnostic run returned **1197 passed,
+18 failed, 27 skipped, 1 deselected** in 125.02 s, with no remaining task-inventory
+failure.
 
 The remaining 18 failures concern unchanged baseline code on this host:
 
@@ -104,5 +108,6 @@ For all ten translation failures, the recorded stamp matches the exact HEAD
 blob and the LF-normalized local source. Affected baseline tests and modules
 were checked unchanged from HEAD. Skips mostly require exported policies;
 others require music, Cargo, symlink privilege or off-thread GL support.
-Logs are kept locally in the ignored `outputs/claw_stand_pytest.log` and
-`outputs/claw_stand_baseline_checks.log`. No shared tracking files were changed.
+Logs are kept locally in the ignored `outputs/claw_stand_pytest_final.log`,
+`outputs/claw_stand_pytest.log` and `outputs/claw_stand_baseline_checks.log`.
+No shared tracking files were changed.

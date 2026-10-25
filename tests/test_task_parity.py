@@ -51,6 +51,7 @@ TASKS = ("jumper.flat", "jumper.tripod", "jumper.ripple", "jumper.tetrapod")
 #: Kept as an explicit list rather than a rule about the id, so that leaving a task
 #: out of `TASKS` is a decision someone wrote down.
 NOT_LOCOMOTION = {
+    "jumper.claw_stand",
     # Imitates a fixed choreography: no command, no gait prior, 22 joints instead
     # of 20, and its reward budget is the tracking terms rather than the velocity
     # skeleton's. Nothing it could agree with the four on would mean anything.
