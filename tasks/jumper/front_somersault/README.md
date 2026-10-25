@@ -15,6 +15,9 @@ easier to inspect; it contains the same simulated motion with slower playback.
 
 ### Middle-leg lift and forward-arm tuck experiment
 
+This earlier preview interpreted the tuck as an above-body pose. The corrected
+underbody experiment below follows the clarified motion instead.
+
 The [new preparation preview](middle_lift_preview.mp4), also available at
 [half speed](middle_lift_half_speed.mp4), shows an experimental CPU physics
 rollout, not a trained policy or completed flip. It uses a 0.4 s support
@@ -33,6 +36,53 @@ non-foot ground force briefly reached 1.98 N. The attempt reaches only about
 34 degrees of forward rotation and aborts the reach without a claw push.
 It is a clearance experiment; the previous diagnostic reference remains the
 better rolling attempt.
+
+### Corrected underbody tuck with opening during arm extension
+
+The [aligned underbody preview](underbody_aligned_open_half_speed.mp4) keeps
+the palms folded back underneath the body for the original rear-driven roll.
+The fingers start closed and receive a 30 ms opening-target ramp at the same
+contact/COM-triggered PUSH transition as the arms extend. Its LF opening target
+is -0.3 rad (RF mirrored). This is a new CPU physics rollout, slowed to half
+speed for viewing, not a trained policy or successful somersault.
+
+`tools/probe_underbody_claw.py` contains the readable `ALIGNMENTS`/`STROKES`
+tables. The `underbody_a` solution preserves the original tucked palm center
+and reach/push palm endpoints while rotating the forearms toward forward.
+All targets are mirrored by name and checked against XML limits with the same
+0.08 rad margin. The tool saves diagnostic NPZ/JSON measurements separately;
+it does not replace a training reference or alter the shared physics/controller.
+Fingers retain their original collision/friction and impact classification.
+An extra sensor measures all moving finger collision geoms independently.
+
+On the Windows AMD CPU, the aligned/-0.3 rad preview reaches 192.45 degrees
+peak forward rotation, 0.270 m peak base height and -0.078 N*s net forward
+palm impulse during extension (a braking impulse). Peak self-contact is
+0.301 N. With this same alignment, closed fingers reach 191.02 degrees.
+Opening does not yet create finger-ground force. The original closed-jaw
+diagnostic remains better at 224.67 degrees and +0.215 N*s palm impulse.
+
+The [original tuck with timed opening](underbody_original_open_half_speed.mp4)
+is an additional comparison: opening to -0.6 rad reaches 226.13 degrees and
++0.218 N*s palm impulse, without measured self-contact. Neither comparison
+records finger-ground force or establishes a spring-assisted launch. Actual
+finger excursions during the 105 ms arm-extension phase are about 0.254 rad
+for the aligned preview and 0.509 rad for the original-tuck comparison;
+a 30 ms command ramp does not imply instantaneous servo motion. Larger
+-1.2 rad openings caused self-contact and are not used in these previews.
+Both attempts still land on the body and fail the somersault qualification.
+
+```sh
+python tools/probe_underbody_claw.py --self-test
+python tools/probe_underbody_claw.py --alignment underbody_a --opening -.3 --video outputs/underbody_aligned.mp4
+python tools/probe_underbody_claw.py --opening -.6 --video outputs/underbody_open.mp4
+```
+
+Use separate `--output` directories to retain comparisons. Without `--yaw` or
+`--opening`, the tool compares an opening grid; without `--alignment` it also
+compares shoulder yaws. The optional `--push-trigger contact` tests extension
+as soon as both palms plant, without the default COM condition; it did not
+advance the transition in the measured trials. All outputs remain experiments.
 
 ## 1. Find a physically achievable reference
 
