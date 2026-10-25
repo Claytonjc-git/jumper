@@ -13,6 +13,27 @@ available only for explicit smoke tests. There is deliberately no qualified
 The [half-speed video](rear_claw_half_speed.mp4) makes the two propulsion stages
 easier to inspect; it contains the same simulated motion with slower playback.
 
+### Middle-leg lift and forward-arm tuck experiment
+
+The [new preparation preview](middle_lift_preview.mp4), also available at
+[half speed](middle_lift_half_speed.mp4), shows an experimental CPU physics
+rollout, not a trained policy or completed flip. It uses a 0.4 s support
+preparation, LM J1/J2 targets of 0.2/-1.5 rad, and LF J0..J4 targets of
+[-pi/2, -pi, 0, -1.97, -1.0] rad, with HOME-relative right-side mirroring.
+Shoulder yaw is delayed until the last 35% of the tuck ramp so the claws fold
+upward before rotating forward. The original rear drive, deployment targets,
+contact triggers and servo limits are retained. These temporary controller
+overrides are not enabled in the shipped search/training controller.
+
+On the Windows AMD CPU, the opened-finger variant had 75.65 mm minimum claw-mesh
+height at the end of preparation (52.23 mm without the middle-leg extension).
+The later tuck interval, from 0.85 s until rear drive, had 62.93 mm minimum
+clearance and no measured self-contact force. Across the full preparation,
+non-foot ground force briefly reached 1.98 N. The attempt reaches only about
+34 degrees of forward rotation and aborts the reach without a claw push.
+It is a clearance experiment; the previous diagnostic reference remains the
+better rolling attempt.
+
 ## 1. Find a physically achievable reference
 
 Run from the repository root, using the installed environment. On Windows,
