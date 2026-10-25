@@ -84,6 +84,65 @@ compares shoulder yaws. The optional `--push-trigger contact` tests extension
 as soon as both palms plant, without the default COM condition; it did not
 advance the transition in the measured trials. All outputs remain experiments.
 
+### Rear -> middle -> claw relay with delayed opening
+
+The [stage-labelled slow-motion preview](rear_middle_claw_slow.mp4) shows the
+next CPU physics experiment at one-quarter speed. The matching
+[`relay_launch.json`](relay_launch.json) stores all settings, the original
+24-parameter table, source hashes and measured report for exact replay:
+
+```sh
+python tools/probe_underbody_claw.py --relay --self-test
+python tools/probe_underbody_claw.py --resume tasks/jumper/front_somersault/relay_launch.json --output outputs/relay_replay --video outputs/relay_replay.mp4
+```
+
+`relay.py` adds an experimental middle-drive stage (recorded as stage 7),
+without modifying `staged.py`, shared code, the trained task or its reference:
+
+1. Retain middle support while the rear legs drive. Handoff requires prior
+   rear contact, then two control samples with both rear feet off the floor.
+2. Push the middle legs toward LM J0/J1/J2 = [-0.4, -0.3, -0.8] rad,
+   mirrored by name, over 0.08 s. Preplant the palms during this stage; the
+   large arm-extension stroke still waits for the launch gate.
+3. After middle support has been observed, wait for 65 degrees nose-down.
+   Arm launch additionally requires both palms planted and COM beyond them.
+   The middle feet may depart after contributing their push.
+4. Open the fingers toward LF/RF J4 = -0.6/+0.6 rad only after actual arm
+   joints pass 55% of the launch stroke. This is measured joint-space
+   progress, not elapsed command time. Keep the arms extended until the
+   fingers reach 70% of their opening target, with a 0.30 s timeout.
+5. Tuck and request HOME recovery. A recovery target does not mean the robot
+   has landed upright; this recorded attempt lands on the body.
+
+On the Windows AMD CPU, rear-foot departure handed off at **0.860 s**.
+Middle drive contributed **0.991 N*s upward impulse**. Arm launch began at
+**67.10 degrees** nose-down. Finger opening triggered at **1.185 s**, after
+**57.03%** measured arm progress; actual finger travel during PUSH was about
+**0.441 rad**. Peak forward rotation is **206.85 degrees**, peak base height
+**0.155 m**, and longest unsupported interval **0.070 s**. Forward palm impulse
+is **0.085 N*s**. Peak torque remains **1.7464 N*m**, all commanded targets
+keep the XML margin, and measured self-contact force is zero.
+
+The handoff works, but rotation still trails the original 224.67-degree
+attempt. Both palms had already lost contact when delayed opening triggered,
+and the moving fingers recorded zero ground impulse throughout. This is not
+evidence of an additional spring-powered launch. The attempt records
+**178.38 N** peak non-foot impact and fails the existing somersault gates.
+No failed recording is promoted for training. The required next improvement
+is maintaining useful claw contact through more of the extension stroke.
+
+For new comparisons, `--relay` sweeps 50/65/80-degree launch thresholds,
+two middle strokes and closed/-0.3/-0.6 rad jaw targets. A single variant can
+be selected with `--launch-angle`, `--middle-knee` and `--opening`;
+`--middle-ramp` and `--jaw-after` tune middle timing and the measured opening
+threshold. The JSON replay path also preserves arbitrary bounded middle
+targets and arm parameters from an experiment.
+
+Validation includes CPU rollouts and MP4 replay, relay feedback self-checks,
+25 registry/parity checks, and Ruff. A closed-jaw, non-relay control reproduced
+the original recorded joint trajectory exactly on this machine. No policy
+training or hardware test was performed for this experimental sequence.
+
 ## 1. Find a physically achievable reference
 
 Run from the repository root, using the installed environment. On Windows,
