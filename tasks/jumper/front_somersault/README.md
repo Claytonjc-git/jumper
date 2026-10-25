@@ -1,7 +1,7 @@
 # Forward somersault
 
 `jumper.front_somersault` is a physics-search and residual-tracking setup for
-crouch → launch → tuck → extend → land → HOME. It uses the existing jump task's
+rear-leg drive → claw plant/push → tuck → land → HOME. It uses the existing jump task's
 actions and observations, with task-local orientation, angular-velocity and
 accumulated-forward-rotation tracking. Existing common and jump files are unchanged.
 
@@ -10,6 +10,8 @@ accumulated-forward-rotation tracking. Existing common and jump files are unchan
 not a trained policy or a successful flip. Its matching `ref/diagnostic.npz` is
 available only for explicit smoke tests. There is deliberately no qualified
 `ref/front_somersault.npz`; ordinary training refuses to start without one.
+The [half-speed video](rear_claw_half_speed.mp4) makes the two propulsion stages
+easier to inspect; it contains the same simulated motion with slower playback.
 
 ## 1. Find a physically achievable reference
 
@@ -29,13 +31,37 @@ including its torque-speed curve and thermal derating, at kp=10, kd=0.5,
 200 Hz control and 400 Hz physics. This differs from the claw-stand MP4, whose
 reference was animated by assigning joint and base poses.
 
-`physics.py` contains the readable schedule: three seven-joint poses in `SEED`
-(crouch, push, tuck), four phase durations and front/rear timing offsets.
-`JOINT_PAIRS` maps every counterpart by name and sign; unused joints hold HOME.
-`LOW`/`HIGH` bound exploration. Every commanded sample must retain at least
-0.08 rad of XML joint-limit margin. Smoothstep blends the poses; extension
-returns to HOME over 0.4 s, with a nominal 0.3 s lead-in (leg timing offsets
-can advance preparation) and settling at the end.
+The default `--schedule rear-claw` follows the requested two-stage mechanism.
+`staged.py` contains the readable 24-parameter `SEED` table and search bounds:
+claw tuck/plant/push poses, rear support/drive/tuck poses, middle-foot lift,
+rear yaw and phase timings. Every counterpart is mapped by name and a
+HOME-relative delta. Unused joints hold HOME, and every commanded sample must
+retain at least 0.08 rad of XML joint-limit margin.
+
+After a 0.3 s HOME lead-in, it establishes middle-leg support for 0.2 s,
+tucks the claws while keeping rear support, then drives the rear feet backward
+and down while lifting the middle feet. Claw deployment waits for forward
+pitch, recorded rear-foot contact and at least half the rear-drive ramp.
+The claw push waits for both claws to touch and the whole robot's center of
+mass to pass 5 mm beyond the mean hand position. Front forces ahead of that
+point can brake the forward rotation. Failure to reach either trigger causes
+a smooth HOME recovery; it does not force a fake push. The subsequent flight
+tuck and 0.4 s HOME recovery are time based. The table gives initial settings,
+not a successful maneuver.
+
+Both front silicone palm pads are support surfaces in this task. The walking
+configuration counts only the rear pad; using it unchanged missed real front-pad
+contacts and prevented the claw-push trigger. Search and training therefore share
+a task-local collision configuration giving both pads the existing foot friction,
+contact dimension and priority. Friction randomization includes both pads. The
+six-channel contact/force schema combines the two pads per claw; the COM trigger
+uses the centers of the pads actually touching. Rigid palm, arm and chassis
+contacts remain impacts. Shared hardware configuration is not mutated. The extra
+pad's friction remains the same material estimate as the existing foot pad,
+not a new measurement.
+
+`--schedule jump` retains the older 27-parameter schedule in `physics.py` for
+comparison. Its JSON parameter files require that explicit flag when resuming.
 
 Each generation saves `outputs/front_somersault_search/best_candidate.npz`,
 its JSON report and `search.json`. Exit code **2** means no candidate qualified;
@@ -65,11 +91,17 @@ Promotion requires all of the following measured gates:
 | Landing | Last 0.3 s within 15° of upright, at least three feet planted |
 | Recovery | HOME joint RMS below 0.18 rad; speed below 0.25 m/s and 1 rad/s |
 | Hardware | Torque within the shared modeled cap (currently 1.7464 N·m, below the XML's 2 N·m ceiling); joint-limit overshoot below 0.01 rad |
+| Rear-claw mechanism | Both rear-drive and claw-push phases deliver more than 0.02 N·s of net forward terrain reaction; the claw-push phase must execute |
 
 Only passing rollouts are written to `ref/front_somersault.npz`. Loading it
 recomputes rotation and qualification from the stored measurements, checks
 float32 channels and joint names, and verifies the model/motor fingerprint.
 Collision checks retain both physics substeps and the strongest self-contact.
+Rear-claw recordings also store controller stage, COM feedback and world-frame
+ground reaction on each foot. The sensor's primary-to-terrain force is negated
+before recording, so positive X impulse means forward propulsion on the robot.
+An assisted ground roll does not count as an aerial somersault: the flight,
+rotation, impact and landing gates above still apply.
 
 ## 2. Train on Colab after qualification
 
@@ -119,13 +151,22 @@ GPU-policy success or physical-robot readiness.
 
 ## Verification and current measurements
 
-On this Windows AMD CPU machine (October 25, 2026), the initial 128-candidate
-search, a further 512-candidate search, and an extended 2,048-candidate search
-did not find a qualified flip. The shipped candidate's final strict report
-measures about **0.255 s** of continuous flight, **55.28°** forward rotation
-within one flight, **0.211 m** peak base height, **1.746 N·m** peak sampled
-torque, and **116.97 N** peak non-foot impact. It fails turn and collision
-gates. The MP4 integrates that candidate through physics.
+On this Windows AMD CPU machine (October 25, 2026), the new rear/claw mechanism
+passed both propulsion checks after correcting the tuck/drive geometry and
+front-pad contact classification. The shipped candidate came from a
+1,024-candidate refinement following a 256-candidate both-pad search. It has
+**224.67°** peak forward rotation, **149.26°** during one flight, **0.265 s**
+continuous flight, **0.248 m** peak base height and **0.254 m** forward travel.
+The measured net forward impulses are **0.604 N·s** from the rear drive and
+**0.215 N·s** from the subsequent claw-push phase. Peak sampled torque remains
+**1.746 N·m**. It lands on its back, finishes at about **187.76°**, and records
+**213.52 N** peak non-foot impact. It is an assisted-roll prototype, not a
+qualified somersault or a motion ready for physical hardware.
+
+A zero-residual native replay of the complete three-second initial both-pad
+reference matched its recorded joints within **2.93e-6 rad** and base height
+within **1.36e-6 m**. Randomization and failure terminations were disabled for
+that comparison so the entire failed trajectory could be checked.
 
 The explicit diagnostic CPU test builds and trains 16 environments for five
 updates; it proves stepping and PPO integration, not somersault learning:

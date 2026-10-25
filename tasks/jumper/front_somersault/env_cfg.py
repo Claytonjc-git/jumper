@@ -11,13 +11,13 @@ from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 
-from ..common.constants import FOOT_GEOMS, HOME
+from ..common.constants import HOME
 from ..common.assets import JUMPER_XML
 from ..common.dance.rewards import peak_actuator_force, torque_headroom_cost
 from ..jump.env_cfg import env_cfg as jump_env_cfg
 from ..jump.mdp.observations import FUTURE_OFFSETS
 from . import mdp
-from .physics import CONTROL_DT, KD, KP, PHYSICS_DT, T_GO
+from .physics import CONTROL_DT, PHYSICS_DT, SUPPORT_GEOMS, T_GO, robot_cfg, sensors
 
 REFERENCE = Path(__file__).resolve().parent / "ref" / "front_somersault.npz"
 
@@ -31,21 +31,17 @@ def env_cfg(asset: Path | None = None, play: bool = False):
     cfg = jump_env_cfg(asset=asset, play=play)
     cfg.sim.mujoco.timestep = PHYSICS_DT
     cfg.decimation = round(CONTROL_DT / PHYSICS_DT)
-    for actuator in cfg.scene.entities["robot"].articulation.actuators:
-        actuator.stiffness, actuator.damping = KP, KD
+    cfg.scene.entities["robot"] = robot_cfg()
+    if "foot_friction" in cfg.events:
+        cfg.events["foot_friction"].params["asset_cfg"] = SceneEntityCfg(
+            "robot", geom_names=SUPPORT_GEOMS,
+        )
 
     # A flip may invert freely; non-foot impacts and inter-leg contacts end an attempt.
     cfg.scene.sensors = tuple(
-        sensor for sensor in cfg.scene.sensors or () if sensor.name != "body_ground_contact"
-    ) + (
-        ContactSensorCfg(
-            name="body_ground_contact",
-            primary=ContactMatch(mode="geom", pattern=r".*_meshcol", entity="robot",
-                                 exclude=FOOT_GEOMS),
-            secondary=ContactMatch(mode="body", pattern="terrain"),
-            fields=("force",), reduce="netforce", num_slots=1,
-            history_length=cfg.decimation,
-        ),
+        sensor for sensor in cfg.scene.sensors or ()
+        if sensor.name not in ("body_ground_contact", "feet_ground_contact")
+    ) + sensors(cfg.decimation) + (
         ContactSensorCfg(
             name="self_collision",
             primary=ContactMatch(mode="subtree", pattern="base_link", entity="robot"),
@@ -82,7 +78,7 @@ def env_cfg(asset: Path | None = None, play: bool = False):
     )
     cfg.rewards["ref_contact"] = RewardTermCfg(
         func=mdp.ref_contact_found, weight=2.5,
-        params={"command_name": "jump", "sensor_name": "feet_ground_contact"},
+        params={"command_name": "jump"},
     )
     cfg.rewards["torque_headroom"] = RewardTermCfg(
         func=torque_headroom_cost, weight=-2.0,

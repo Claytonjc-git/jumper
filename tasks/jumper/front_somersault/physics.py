@@ -10,6 +10,7 @@ import hashlib
 import json
 import xml.etree.ElementTree as ET
 from contextlib import nullcontext
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -30,6 +31,8 @@ from ..common.constants import (
 KP, KD = 10.0, 0.5
 PHYSICS_DT, CONTROL_DT = 0.0025, 0.005
 T_GO, DURATION = 0.30, 3.0
+FRONT_PADS = ("LF_palm_pad_f_link_meshcol", "RF_palm_pad_f_link_meshcol")
+SUPPORT_GEOMS = FOOT_GEOMS + FRONT_PADS
 
 # Seven left-side joints per pose; counterparts are resolved by name/sign below.
 JOINT_PAIRS = (
@@ -59,7 +62,7 @@ def fingerprint():
     root = ET.parse(JUMPER_XML).getroot()
     meshdir = root.find("compiler").get("meshdir", "")
     common = Path(__file__).resolve().parent.parent / "common"
-    paths = [JUMPER_XML, MOTOR_CONFIG, Path(__file__),
+    paths = [JUMPER_XML, MOTOR_CONFIG, Path(__file__), Path(__file__).with_name("staged.py"),
              common / "constants.py", common / "actuator.py"]
     paths += [JUMPER_XML.parent / meshdir / node.get("file")
               for node in root.findall("./asset/mesh")]
@@ -74,11 +77,18 @@ def fingerprint():
 
 def sensors(history=2):
     nonfoot = tuple(f"{n}_meshcol" for n in CHASSIS_LINKS + LIMB_LINKS + TIP_LINKS
-                    if f"{n}_meshcol" not in FOOT_GEOMS)
+                    if f"{n}_meshcol" not in SUPPORT_GEOMS)
     return (
         ContactSensorCfg(
             name="feet_ground_contact",
             primary=ContactMatch(mode="geom", pattern=FOOT_GEOMS, entity="robot"),
+            secondary=ContactMatch(mode="body", pattern="terrain"),
+            fields=("found", "force"), reduce="netforce", num_slots=1,
+            history_length=history,
+        ),
+        ContactSensorCfg(
+            name="claw_front_ground_contact",
+            primary=ContactMatch(mode="geom", pattern=FRONT_PADS, entity="robot"),
             secondary=ContactMatch(mode="body", pattern="terrain"),
             fields=("found", "force"), reduce="netforce", num_slots=1,
             history_length=history,
@@ -93,10 +103,49 @@ def sensors(history=2):
     )
 
 
-def scene_cfg(num_envs):
+def robot_cfg():
+    """Both silicone pads carry the claws here; walking chooses only the rear pad."""
     robot = get_jumper_robot_cfg()
+    collision = robot.collisions[0]
+    support_re = "|".join(f"^{name}$" for name in SUPPORT_GEOMS)
+    # Replace complete mappings; do not mutate the shared HYBRID_COLLISION object.
+    robot.collisions = (replace(
+        collision, condim={support_re: 3, ".*": 1}, priority={support_re: 1, ".*": 0},
+        friction={support_re: next(iter(collision.friction.values()))},
+    ),)
     for actuator in robot.articulation.actuators:
         actuator.stiffness, actuator.damping = KP, KD
+    return robot
+
+
+def support_contacts(env):
+    rear = env.scene.sensors["feet_ground_contact"].data.found.reshape(env.num_envs, 6).bool()
+    front = env.scene.sensors["claw_front_ground_contact"].data.found.reshape(env.num_envs, 2).bool()
+    return torch.cat((rear[:, :2] | front, rear[:, 2:]), dim=1)
+
+
+def support_forces(env):
+    rear = env.scene.sensors["feet_ground_contact"].data.force.reshape(env.num_envs, 6, 3)
+    front = env.scene.sensors["claw_front_ground_contact"].data.force.reshape(env.num_envs, 2, 3)
+    return torch.cat((rear[:, :2] + front, rear[:, 2:]), dim=1)
+
+
+def hands_center_x(env):
+    robot = env.scene["robot"]
+    if not hasattr(env, "_somersault_pad_ids"):
+        names = list(robot.body_names)
+        env._somersault_pad_ids = [names.index(name) for name in
+                                   FEET[:2] + ("LF_palm_pad_f_link", "RF_palm_pad_f_link")]
+    x = robot.data.body_link_pos_w[:, env._somersault_pad_ids, 0]
+    back = env.scene.sensors["feet_ground_contact"].data.found.reshape(env.num_envs, 6)[:, :2]
+    front = env.scene.sensors["claw_front_ground_contact"].data.found.reshape(env.num_envs, 2)
+    weights = torch.cat((back, front), dim=1).bool().float()
+    count = weights.sum(dim=1)
+    return torch.where(count > 0, (x * weights).sum(dim=1) / count.clamp_min(1), x.mean(dim=1))
+
+
+def scene_cfg(num_envs):
+    robot = robot_cfg()
     sensor_cfgs = list(sensors())
     sensor_cfgs.append(ContactSensorCfg(
         name="self_collision",
@@ -190,6 +239,15 @@ def qualify(data):
         "torque_bounded": float(np.abs(data["tau"]).max()) <= EFFORT_LIMIT + 1e-5,
         "joint_limits": bool(data["joint_limit_violation"] < .01),
     }
+    staged = {}
+    if data.get("schedule") == "rear-claw":
+        from .staged import summarize
+
+        staged = summarize(data)
+        # 0.02 N*s is measured forward reaction, not merely visiting a phase.
+        checks["rear_propulsion"] = staged["rear_forward_impulse_Ns"] > .02
+        checks["claw_propulsion"] = (staged["claw_push_executed"]
+                                     and staged["claw_forward_impulse_Ns"] > .02)
     return {
         "qualified": all(checks.values()), "checks": checks,
         "longest_flight_s": longest * CONTROL_DT,
@@ -199,6 +257,7 @@ def qualify(data):
         "home_rms_rad": home_error,
         "peak_torque_Nm": float(np.abs(data["tau"]).max()),
         "peak_body_force_N": float(data["body_force"].max()),
+        **staged,
     }
 
 
@@ -214,11 +273,16 @@ def save_reference(path, data, params, *, diagnostic=False):
         "qualified": report["qualified"], "diagnostic": diagnostic,
         "qualification": report, "params": np.asarray(params).tolist(),
         "angular_velocity_frame": "world", "source": "native physics rollout; no state animation",
+        "schedule": data.get("schedule", "jump"),
+        "foot_force_convention": "world-frame terrain reaction acting on each foot",
     }
     out = {k: np.asarray(data[k], dtype=np.float32) for k in (
         "t", "q", "qd", "q_cmd", "tau", "base_pos", "base_quat", "base_lin_vel",
         "base_ang_vel", "foot_pos", "contact", "forward_rotation", "body_force", "self_force",
     )}
+    for key in ("stage", "foot_force", "com_ahead"):
+        if key in data:
+            out[key] = np.asarray(data[key], dtype=np.float32)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(path, meta=np.array(json.dumps(meta)), **out)
@@ -241,20 +305,31 @@ class PhysicsRunner:
         self.feet = [list(self.robot.body_names).index(n) for n in FEET]
         self.times = np.arange(round(DURATION / CONTROL_DT) + 1) * CONTROL_DT
 
-    def rollout(self, params, video=None):
+    def rollout(self, params, video=None, schedule="jump"):
         env, robot = self.env, self.robot
         env.reset(seed=0)
         params = np.atleast_2d(params)
         if len(params) != env.num_envs:
             raise ValueError("parameter batch must match num_envs")
-        command = targets(params, self.times, self.names)
+        controller = None
+        if schedule == "rear-claw":
+            from .staged import RearClawController
+
+            controller = RearClawController(params, self.names)
+            command = np.broadcast_to([HOME[n] for n in self.names],
+                                      (len(params), len(self.times), len(self.names))).copy()
+        elif schedule == "jump":
+            command = targets(params, self.times, self.names)
+        else:
+            raise ValueError(f"Unknown search schedule: {schedule}")
         limits = robot.data.joint_pos_limits[0].cpu().numpy()
         if ((command < limits[:, 0] + .08) | (command > limits[:, 1] - .08)).any():
             raise ValueError("target schedule violates an XML joint limit/margin")
         command_t = torch.tensor(command, dtype=torch.float32)
         records = {k: [] for k in ("q", "qd", "tau", "base_pos", "base_quat",
                                    "base_lin_vel", "base_ang_vel", "foot_pos", "contact",
-                                   "body_force", "self_force", "qpos")}
+                                   "body_force", "self_force", "qpos", "stage",
+                                   "foot_force", "com_ahead")}
         context = nullcontext(None)
         if video is not None:
             from mjrl.viewer.video import ReplayVideo
@@ -262,13 +337,27 @@ class PhysicsRunner:
             context = ReplayVideo(env, video, fps=50, width=960, height=720,
                                   camera_distance=1.2, azimuth=145, elevation=-15)
         with context as recorder:
-            return self._integrate(command, command_t, records, limits, recorder)
+            return self._integrate(command, command_t, records, limits, recorder, controller)
 
-    def _integrate(self, command, command_t, records, limits, recorder):
+    def _integrate(self, command, command_t, records, limits, recorder, controller):
         env, robot = self.env, self.robot
         for k in range(len(self.times)):
             if k:
-                robot.set_joint_position_target(command_t[:, k])
+                target = command_t[:, k]
+                if controller is not None:
+                    contact = support_contacts(env)
+                    hands_x = hands_center_x(env)
+                    com_x = env.sim.data.subtree_com[:, robot.indexing.root_body_id, 0]
+                    ahead = (com_x >= hands_x + .005).cpu().numpy()
+                    command[:, k] = controller.target(
+                        self.times[k], robot.data.root_link_quat_w.cpu().numpy(),
+                        contact.cpu().numpy(), ahead,
+                    )
+                    if ((command[:, k] < limits[:, 0] + .08)
+                            | (command[:, k] > limits[:, 1] - .08)).any():
+                        raise ValueError("rear-claw schedule violates a joint limit/margin")
+                    target = torch.tensor(command[:, k], dtype=torch.float32)
+                robot.set_joint_position_target(target)
                 for _ in range(2):
                     env.scene.write_data_to_sim()
                     env.sim.step()
@@ -287,8 +376,16 @@ class PhysicsRunner:
                 foot_pos=state.body_link_pos_w[:, self.feet] - env.scene.env_origins[:, None, :],
                 qpos=env.sim.data.qpos,
             )
-            contact = env.scene.sensors["feet_ground_contact"].data
-            values["contact"] = contact.found.reshape(env.num_envs, -1).bool().float()
+            values["contact"] = support_contacts(env).float()
+            # The sensor stores primary -> terrain; reaction on the robot is opposite.
+            values["foot_force"] = -support_forces(env)
+            hands_x = hands_center_x(env)
+            com_x = env.sim.data.subtree_com[:, robot.indexing.root_body_id, 0]
+            values["com_ahead"] = (com_x >= hands_x + .005).float()
+            values["stage"] = torch.as_tensor(
+                controller.command_stage if controller is not None and k else
+                np.full(env.num_envs, -1), dtype=torch.float32,
+            )
             for name, key in (("body_ground_contact", "body_force"), ("self_collision", "self_force")):
                 force = env.scene.sensors[name].data.force_history
                 values[key] = force.norm(dim=-1).reshape(env.num_envs, -1).amax(dim=1)
@@ -299,6 +396,7 @@ class PhysicsRunner:
         for i in range(env.num_envs):
             data = {k: v[i] for k, v in arrays.items()}
             data.update(t=self.times.copy(), q_cmd=command[i], joint_names=self.names)
+            data["schedule"] = "rear-claw" if controller is not None else "jump"
             data["forward_rotation"] = signed_rotation(data["base_quat"])
             data["joint_limit_violation"] = float(np.maximum(
                 limits[:, 0] - data["q"], data["q"] - limits[:, 1]).max())

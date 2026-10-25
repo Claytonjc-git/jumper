@@ -21,7 +21,7 @@ from ..jump.mdp.commands import JumpMotionCommand, JumpMotionCommandCfg
 from ..jump.mdp.reference import JumpReference, ref_state
 from ..common.assets import JUMPER_XML
 from ..common.constants import HOME
-from .physics import CONTROL_DT, KD, KP, T_GO, fingerprint, qualify, signed_rotation
+from .physics import CONTROL_DT, KD, KP, T_GO, fingerprint, qualify, signed_rotation, support_contacts
 
 
 def read_reference(path: Path, allow_diagnostic: bool = False) -> tuple[dict, dict]:
@@ -39,6 +39,10 @@ def read_reference(path: Path, allow_diagnostic: bool = False) -> tuple[dict, di
             "body_force", "self_force",
         )
         arrays = {key: archive[key] for key in keys}
+        if meta.get("schedule") == "rear-claw":
+            arrays.update({key: archive[key] for key in ("stage", "foot_force", "com_ahead")})
+            if meta.get("foot_force_convention") != "world-frame terrain reaction acting on each foot":
+                raise ValueError("Rear-claw reference must record terrain reaction acting on the feet")
     names = meta["joint_order"]
     if len(names) != len(set(names)) or set(names) != set(HOME):
         raise ValueError("Reference joint_order must name every robot joint exactly once")
@@ -49,6 +53,8 @@ def read_reference(path: Path, allow_diagnostic: bool = False) -> tuple[dict, di
         "base_ang_vel": (n, 3), "foot_pos": (n, 6, 3), "contact": (n, 6),
         "forward_rotation": (n,), "tau": (n, joints), "body_force": (n,), "self_force": (n,),
     }
+    if meta.get("schedule") == "rear-claw":
+        shapes.update(stage=(n,), foot_force=(n, 6, 3), com_ahead=(n,))
     for key, array in arrays.items():
         if array.shape != shapes[key] or array.dtype != np.float32:
             raise ValueError(f"{key}: expected float32 {shapes[key]}, got {array.dtype} {array.shape}")
@@ -62,6 +68,11 @@ def read_reference(path: Path, allow_diagnostic: bool = False) -> tuple[dict, di
         raise ValueError("Reference base_quat must contain unit wxyz quaternions")
     if not np.isin(arrays["contact"], (0.0, 1.0)).all():
         raise ValueError("Reference contact must contain six binary foot-contact channels")
+    if meta.get("schedule") == "rear-claw":
+        if not np.isin(arrays["stage"], np.arange(-1, 7)).all():
+            raise ValueError("Rear-claw reference has an unknown controller stage")
+        if not np.isin(arrays["com_ahead"], (0., 1.)).all():
+            raise ValueError("Rear-claw COM feedback must be binary")
     if meta.get("model_fingerprint") != fingerprint():
         raise ValueError("Reference model/motor fingerprint differs; regenerate it for this checkout")
     for key, expected in (("KP", KP), ("KD", KD), ("rec_hz", 1 / CONTROL_DT),
@@ -91,7 +102,8 @@ def read_reference(path: Path, allow_diagnostic: bool = False) -> tuple[dict, di
             | (arrays["q_cmd"] > ranges[:, 1] - .08)).any():
         raise ValueError("Reference commanded targets violate the XML limits or 0.08 rad margin")
     violation = float(np.maximum(ranges[:, 0] - arrays["q"], arrays["q"] - ranges[:, 1]).max())
-    measured = qualify(dict(arrays, joint_names=names, joint_limit_violation=violation))
+    measured = qualify(dict(arrays, joint_names=names, joint_limit_violation=violation,
+                            schedule=meta.get("schedule", "jump")))
     if meta["qualification"].get("checks") != measured["checks"]:
         raise ValueError("Reference qualification report disagrees with measured trajectory")
     qualified = meta.get("qualified") is True and meta.get("diagnostic") is False
@@ -205,9 +217,16 @@ class FrontSomersaultCommand(JumpMotionCommand):
         return self.rotation
 
     def _update_command(self, env_ids=None):
-        super()._update_command(env_ids)
-        if env_ids is None:
-            self.measured_rotation()
+        if env_ids is not None:
+            return
+        z = self.robot.data.root_link_pos_w[:, 2] - self._env.scene.env_origins[:, 2]
+        torch.maximum(self._apex_rise, z - self._stance_z, out=self._apex_rise)
+        airborne = ~support_contacts(self._env).any(dim=1)
+        self._flight_s += airborne.float() * self._env.step_dt
+        grounded = ~airborne
+        vz = self.robot.data.root_link_lin_vel_w[:, 2]
+        self._takeoff_vz[grounded] = torch.maximum(self._takeoff_vz[grounded], vz[grounded])
+        self.measured_rotation()
 
 
 def reset_from_reference_phase(env, env_ids, command_name="jump", rsi_fraction=1.0,
@@ -251,13 +270,10 @@ def ref_forward_rotation(env, command_name="jump", sigma_sq=0.25):
     return torch.exp(-error.square() / sigma_sq)
 
 
-def ref_contact_found(env, command_name="jump", sensor_name="feet_ground_contact"):
+def ref_contact_found(env, command_name="jump"):
     """Match the geometric contacts recorded by the physics search, including unloaded feet."""
     _, sample, _, _ = ref_state(env, command_name)
-    found = env.scene[sensor_name].data.found
-    if found is None:
-        raise ValueError(f"{sensor_name} must report geometric contact presence")
-    actual = found.reshape(env.num_envs, -1).bool()
+    actual = support_contacts(env)
     return (actual == sample["contact"].bool()).float().mean(dim=1)
 
 

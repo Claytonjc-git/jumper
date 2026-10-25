@@ -36,14 +36,51 @@ def score(data, report):
     last_quat = data["base_quat"][-1]
     upright = 1 - 2 * (last_quat[1] ** 2 + last_quat[2] ** 2)
     settled = np.linalg.norm(data["base_ang_vel"][-1])
-    return (100 * report["qualified"] + 8 * progress + 8 * min(rise, .35)
+    value = (100 * report["qualified"] + 8 * progress + 8 * min(rise, .35)
             + 3 * report["longest_flight_s"] - 4 * impact_fraction - 3 * self_fraction
             - report["home_rms_rad"] - .2 * settled + .25 * upright
             - 2 * max(0, data["joint_limit_violation"] - .01))
+    if data.get("schedule") == "rear-claw":
+        value += (6 * np.clip(report["peak_forward_rotation_deg"] / 360, 0, 1)
+                  + 3 * report["checks"]["claw_propulsion"]
+                  + np.clip(report["rear_forward_impulse_Ns"], 0, .5)
+                  + 4 * np.clip(report["forward_travel_m"], 0, .4))
+    return value
 
 
 def self_test():
     """Synthetic positive/negative controls test validation, not physical feasibility."""
+    from tasks.jumper.front_somersault.staged import RearClawController, SEED as STAGED_SEED
+
+    controller = RearClawController(STAGED_SEED[None], list(HOME))
+    quat = np.array([[1., 0., 0., 0.]])
+    contacts = np.zeros((1, 6), dtype=bool)
+    contacts[:, 4:] = True
+    ahead = np.zeros(1, dtype=bool)
+    start = .30 + .20 + STAGED_SEED[-6]
+    controller.target(0., quat, contacts, ahead)
+    controller.target(start, quat, contacts, ahead)
+    command = controller.target(start + .01, quat, contacts, ahead)
+    assert controller.stage[0] == controller.REAR, "rear drive did not precede claw deployment"
+    np.testing.assert_allclose(command[0, [list(HOME).index(f"LF_J{j}_joint") for j in (1, 2, 3)]],
+                               STAGED_SEED[:3])
+    angle = STAGED_SEED[-4] + .05
+    quat[:] = [np.cos(angle / 2), 0, np.sin(angle / 2), 0]
+    trigger = start + STAGED_SEED[-5] + .01
+    controller.target(trigger, quat, contacts, ahead)
+    assert controller.stage[0] == controller.REACH, "forward pitch did not deploy claws"
+    reach = trigger + STAGED_SEED[-3] + .01
+    controller.target(reach, quat, contacts, ahead)
+    assert controller.stage[0] == controller.REACH, "claws pushed before touching the floor"
+    contacts[:, :2] = True
+    controller.target(reach + .01, quat, contacts, ahead)
+    assert controller.stage[0] == controller.REACH, "claws pushed while still ahead of the COM"
+    ahead[:] = True
+    controller.target(reach + .02, quat, contacts, ahead)
+    assert controller.stage[0] == controller.PUSH, "planted claws did not trigger the push"
+    for stamp in np.arange(reach + .025, 3.1, CONTROL_DT):
+        final = controller.target(stamp, quat, contacts, ahead)
+    np.testing.assert_allclose(final[0], list(HOME.values()))
     t = np.arange(401) * CONTROL_DT
     angle = np.clip((t - .4) / .8, 0, 1) * 2 * np.pi
     quat = np.column_stack([np.cos(angle / 2), np.zeros(len(t)),
@@ -62,6 +99,17 @@ def self_test():
         joint_limit_violation=0.,
     )
     assert qualify(good)["qualified"], "positive validation control failed"
+    rear_only = dict(good, schedule="rear-claw", stage=np.ones(len(t)),
+                     foot_force=np.zeros((len(t), 6, 3)))
+    assert not qualify(rear_only)["qualified"], "rear-only flip passed the required claw propulsion gate"
+    staged_good = copy.deepcopy(rear_only)
+    staged_good["stage"][(t >= .30) & (t < .35)] = RearClawController.REAR
+    staged_good["stage"][(t >= .35) & (t < .39)] = RearClawController.PUSH
+    staged_good["foot_force"][(t >= .30) & (t < .35), 4:, 0] = 1.
+    staged_good["foot_force"][(t >= .35) & (t < .39), :2, 0] = 1.
+    assert qualify(staged_good)["qualified"], "positive rear-plus-claw propulsion control failed"
+    staged_good["foot_force"] *= -1
+    assert not qualify(staged_good)["qualified"], "backward claw reaction passed forward propulsion"
     for key, value in (("contact", np.ones_like(contact)),
                        ("forward_rotation", -rotation),
                        ("forward_rotation", np.zeros_like(rotation)),
@@ -87,6 +135,8 @@ def main():
     parser.add_argument("--population", type=int, default=64)
     parser.add_argument("--num-envs", type=int, default=16)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--schedule", choices=("rear-claw", "jump"), default="rear-claw",
+                        help="rear drive -> pitch-triggered claw plant/push, or the older jump schedule")
     parser.add_argument("--resume", type=Path, help="best_candidate.json from a previous search")
     parser.add_argument("--output", type=Path, default=ROOT / "outputs/front_somersault_search")
     parser.add_argument("--reference", type=Path,
@@ -103,14 +153,17 @@ def main():
     if args.population % args.num_envs:
         parser.error("population must be a multiple of num-envs")
     args.output.mkdir(parents=True, exist_ok=True)
-    mean = SEED.copy()
+    initial, low, high = SEED, LOW, HIGH
+    if args.schedule == "rear-claw":
+        from tasks.jumper.front_somersault.staged import HIGH as high, LOW as low, SEED as initial
+    mean = initial.copy()
     if args.resume:
         metadata = json.loads(args.resume.read_text(encoding="utf-8"))
         mean = np.asarray(metadata["params"], dtype=float)
-        if mean.shape != SEED.shape or not np.isfinite(mean).all():
-            parser.error("resume file must contain 27 finite params")
-    mean = np.clip(mean, LOW, HIGH)
-    sigma = (HIGH - LOW) * .14
+        if mean.shape != initial.shape or not np.isfinite(mean).all():
+            parser.error(f"resume file must contain {len(initial)} finite params for {args.schedule}")
+    mean = np.clip(mean, low, high)
+    sigma = (high - low) * .14
     rng = np.random.default_rng(args.seed)
     runner = PhysicsRunner(args.num_envs)
     best_score, best_params, best_report = -np.inf, None, None
@@ -118,12 +171,12 @@ def main():
     log = []
     try:
         for generation in range(args.generations):
-            population = np.clip(rng.normal(mean, sigma, (args.population, len(SEED))), LOW, HIGH)
+            population = np.clip(rng.normal(mean, sigma, (args.population, len(initial))), low, high)
             population[0] = mean if best_params is None else best_params
             scores = []
             for first in range(0, args.population, args.num_envs):
                 batch = population[first:first + args.num_envs]
-                for params, data in zip(batch, runner.rollout(batch), strict=True):
+                for params, data in zip(batch, runner.rollout(batch, schedule=args.schedule), strict=True):
                     report = qualify(data)
                     value = score(data, report)
                     scores.append(value)
@@ -134,7 +187,7 @@ def main():
                         save_reference(args.reference, data, params)
             elite = population[np.argsort(scores)[-max(2, args.population // 8):]]
             mean = elite.mean(axis=0)
-            sigma = np.maximum(elite.std(axis=0), (HIGH - LOW) * .025)
+            sigma = np.maximum(elite.std(axis=0), (high - low) * .025)
             row = dict(generation=generation + 1, evaluations=(generation + 1) * args.population,
                        seconds=time.monotonic() - start, score=float(best_score), **best_report)
             log.append(row)
@@ -143,7 +196,8 @@ def main():
             if args.reference.is_file() and best_report["qualified"]:
                 break
         if args.video:
-            runner.rollout(np.tile(best_params, (args.num_envs, 1)), video=args.video)
+            runner.rollout(np.tile(best_params, (args.num_envs, 1)), video=args.video,
+                           schedule=args.schedule)
     finally:
         runner.close()
     print("QUALIFIED reference saved." if best_report["qualified"] else
