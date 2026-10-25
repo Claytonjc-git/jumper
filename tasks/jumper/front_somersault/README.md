@@ -97,12 +97,14 @@ policy training or physical-robot test was performed for this experiment.
 The `momentum` table accepts an optional `flight` table. `tuck` sets absolute
 flight-tuck targets per left leg, from J0 (`{"LF": [...], "LM": [...], "LR": [...]}`);
 the right legs mirror by name. `claw: "extended"` holds the
-PUSH arm pose through flight. `land_s` opens the `land` limbs to HOME, starting
-that many seconds after TUCK begins, over `land_ramp_s`. The landing ramp starts
-from the live command. Without `flight`, the replay matches the run above exactly.
+PUSH arm pose through flight. Each `land` entry moves its `limbs` to `land_pose`
+(HOME where unset), starting `at_s` after TUCK begins, over `ramp_s`. Each ramp
+starts from the live command. After `hold_s` the limbs return to HOME over
+`release_s` (0.3 s). Without `flight`, the replay matches the run above exactly.
 
 ```sh
-python tools/probe_momentum_launch.py --resume tasks/jumper/front_somersault/momentum_launch.json --tuck tuned --land-at .20 --land-ramp .04 --land-limbs claw --video outputs/flight_tuned_claw.mp4
+python tools/probe_momentum_launch.py --resume tasks/jumper/front_somersault/momentum_launch.json --tuck tuned --landing tuned --video outputs/flight_landing.mp4
+python tools/probe_momentum_launch.py --resume tasks/jumper/front_somersault/momentum_launch.json --tuck tuned --land-at .20 --land-ramp .04 --land-limbs claw
 python tools/probe_momentum_launch.py --resume tasks/jumper/front_somersault/momentum_launch.json --compare-flight --output outputs/flight_compare
 ```
 
@@ -120,6 +122,7 @@ on the Windows AMD CPU:
 | `inward`, all limbs open at 0.24 s over 0.04 s | 243.6 deg | 0.290 s | 1.290/1.290/1.265 s | 64.1 N | 0 |
 | `tuned` tuck | 289.7 deg | 0.315 s | 1.290/1.300/1.305 s | 212.3 N | 0 |
 | `tuned`, claws open at 0.20 s over 0.04 s | 276.7 deg | 0.315 s | 1.290/1.300/1.290 s | 104.2 N | 0 |
+| `tuned` tuck, `tuned` landing | 272.9 deg | 0.310 s | 1.290/1.295/1.285 s | 34.9 N | 0 |
 
 The `inward` rear tuck alone turns the robot 269 degrees in flight. The claws
 touch down first, about 0.2 s before the rear feet, and the LF/RF J3 joints
@@ -147,6 +150,18 @@ The remaining failures are the claw-propulsion gate (palm impulse -0.326 N*s,
 which is the braking that makes the spin) and 104 N non-foot impact at 1.31 s.
 At that time the robot has turned 344.6 degrees and squats onto its fingers,
 palms and leg links: the landing speed is the cause, not the flip shape.
+
+The robot touches down at 1.8 m/s vertical, after a 0.2 m fall from peak height.
+With only the claws open, the claw and rear servos reach their 1.75 N*m limit
+within 10 ms, but the folded middle legs use only 0.5-0.8 N*m. The `tuned`
+landing came from a 12-generation cross-entropy search on peak non-foot force
+after 1.1 s. It opens the claws at 0.202 s and the middle and rear legs at
+0.295 s into a landing pose, holds it 0.18 s, then releases to HOME. The peak
+landing force falls to 34.9 N with 272.9 degrees of flight turn and no self-contact.
+The remaining contacts are flat claw fingers, palms and rear calves (up to 18 N
+during recovery). Standing at HOME records no non-foot force. Separately, the hard
+palm links and middle calves scrape the floor during the launch (30.3 N at
+0.815 s), so `no_body_impact` also fails before takeoff.
 
 ### Middle-leg lift and forward-arm tuck experiment
 

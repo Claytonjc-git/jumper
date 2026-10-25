@@ -1,7 +1,7 @@
 """Original short handoff with optional rearward middle drive and causal peak release.
 
-Optional `flight` settings change the tuck pose per leg, hold the claws extended, or open
-chosen limbs to HOME at a set time after TUCK starts, before touchdown.
+Optional `flight` settings change the tuck pose per leg, hold the claws extended, and move
+limb groups to a landing pose at set times after TUCK starts, then release them to HOME.
 """
 
 from __future__ import annotations
@@ -14,6 +14,23 @@ import numpy as np
 from ..common.constants import HOME
 
 LIMBS = {"claw": ("LF", "RF"), "middle": ("LM", "RM"), "rear": ("LR", "RR")}
+
+
+def smooth(u):
+    u = np.clip(u, 0, 1)
+    return u*u*(3-2*u)
+
+
+def leg_targets(names, base, legs):
+    """Copy base with absolute left-leg targets from J0; right legs mirror by name."""
+    out = base.copy()
+    for left_leg, values in legs.items():
+        for j, value in enumerate(values):
+            left, right = f"{left_leg}_J{j}_joint", f"R{left_leg[1]}_J{j}_joint"
+            sign = 1 if left == "LF_J1_joint" else -1
+            out[names.index(left)] = value
+            out[names.index(right)] = HOME[right]+sign*(value-HOME[left])
+    return out
 
 
 class MomentumMeter:
@@ -58,23 +75,23 @@ def controller_type(base, variants):
             self.launch_time = np.full(n, np.nan)
             self.release_reason = [None]*n
             self.tuck_time = np.full(n, np.nan)
-            self.land_time = np.full(n, np.nan)
-            self.land_from = np.zeros((n, len(names)))
             self.home = np.array([HOME[name] for name in names])
+            self.land_goal = np.tile(self.home, (n, 1))
+            self.land_ids, self.land_time, self.land_from = [], [], []
             for i, o in enumerate(self.options):
                 f = o.get("flight", {})
                 if f.get("claw", "tuck") == "extended":
                     claw = [k for k, name in enumerate(names) if name[:2] in LIMBS["claw"]]
                     self.poses[i, self.TUCK, claw] = self.poses[i, self.PUSH, claw]
-                # Absolute left-leg tuck targets from J0; the right leg mirrors by name.
-                for left_leg, values in f.get("tuck", {}).items():
-                    right_leg = "R"+left_leg[1]
-                    for j, value in enumerate(values):
-                        left, right = f"{left_leg}_J{j}_joint", f"{right_leg}_J{j}_joint"
-                        sign = 1 if left == "LF_J1_joint" else -1
-                        self.poses[i, self.TUCK, names.index(left)] = value
-                        self.poses[i, self.TUCK, names.index(right)] = (
-                            HOME[right]+sign*(value-HOME[left]))
+                self.poses[i, self.TUCK] = leg_targets(names, self.poses[i, self.TUCK],
+                                                       f.get("tuck", {}))
+                self.land_goal[i] = leg_targets(names, self.home, f.get("land_pose", {}))
+                entries = f.get("land", ())
+                self.land_ids.append([[k for k, name in enumerate(names)
+                                       if name[:2] in sum((LIMBS[g] for g in e["limbs"]), ())]
+                                      for e in entries])
+                self.land_time.append([np.nan]*len(entries))
+                self.land_from.append([None]*len(entries))
             for i, o in enumerate(self.options):
                 if not o.get("middle_enabled", True):
                     continue
@@ -161,21 +178,24 @@ def controller_type(base, variants):
             self.tuck_time[(before == self.PUSH) & (self.stage == self.TUCK)] = time
             for i, o in enumerate(self.options):
                 f = o.get("flight", {})
-                if f.get("land_s") is None or np.isnan(self.tuck_time[i]):
+                if np.isnan(self.tuck_time[i]):
                     continue
-                # Open the landing limbs to HOME before touchdown, from the live command.
-                # ponytail: timed from TUCK start; a measured-rotation trigger if launches vary.
-                ids = [k for k, name in enumerate(self.names)
-                       if name[:2] in sum((LIMBS[g] for g in f["land"]), ())]
-                if np.isnan(self.land_time[i]):
-                    if time-self.tuck_time[i] < f["land_s"]:
-                        continue
-                    self.land_time[i] = time
-                    self.land_from[i] = self.current[i]
-                u = np.clip((time-self.land_time[i])/f["land_ramp_s"], 0, 1)
-                u = u*u*(3-2*u)
-                self.current[i, ids] = (self.land_from[i, ids]
-                                        + (self.home[ids]-self.land_from[i, ids])*u)
+                # Move each landing group from its live command to the landing pose, hold,
+                # then release to HOME. ponytail: timed from TUCK start; a measured-rotation
+                # trigger if launches vary.
+                for e, entry in enumerate(f.get("land", ())):
+                    if np.isnan(self.land_time[i][e]):
+                        if time-self.tuck_time[i] < entry["at_s"]:
+                            continue
+                        self.land_time[i][e] = time
+                        self.land_from[i][e] = self.current[i].copy()
+                    s = time-self.land_time[i][e]
+                    start = self.land_from[i][e]
+                    value = start+(self.land_goal[i]-start)*smooth(s/entry["ramp_s"])
+                    released = smooth((s-entry["ramp_s"]-f.get("hold_s", np.inf))
+                                      / f.get("release_s", .3))
+                    value += (self.home-value)*released
+                    self.current[i, self.land_ids[i][e]] = value[self.land_ids[i][e]]
             changed = before != self.stage
             # The middle override changes the outgoing command, so save that
             # command at every transition rather than the parent's earlier copy.

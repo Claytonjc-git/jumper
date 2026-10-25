@@ -35,6 +35,14 @@ TUCKS = {"original": {}, "inward": {"LR": (-.197, .925, -.671)},
          "tuned": {"LF": (-.4645, .5933, -1.2077, -1.9667), "LM": (-.1994, .6752, -1.2797),
                    "LR": (-.1831, .3906, -.8993)}}
 LAND_LIMBS = ("claw", "middle", "rear")
+# Landing groups, absolute left-leg landing pose from J0 [rad] (right mirrored) and hold
+# before HOME. "tuned": cross-entropy on landing impact with the "tuned" tuck.
+LANDINGS = {"tuned": dict(
+    land=[dict(limbs=["claw"], at_s=.2023, ramp_s=.04),
+          dict(limbs=["middle", "rear"], at_s=.2947, ramp_s=.04)],
+    land_pose={"LF": (-.5507, -1.166, -.2417, -1.3452), "LM": (-.0927, .3828, -2.1408),
+               "LR": (.5701, .2846, -1.7418)},
+    hold_s=.1755)}
 
 
 def variant(preset, delay=0., load_back=False, trigger="delay", opening=0.):
@@ -140,8 +148,8 @@ def self_test():
     q1 = controller.target(.03, quat, contact, np.array([True]))
     np.testing.assert_allclose(q0[:, controller.middle_ids], q1[:, controller.middle_ids])
     # Landing must start from the live tuck command, not jump, and finish at HOME.
-    v["momentum"]["flight"] = dict(tuck=TUCKS["inward"], land_s=.05, land_ramp_s=.04,
-                                   land=list(LAND_LIMBS))
+    v["momentum"]["flight"] = dict(tuck=TUCKS["inward"],
+                                   land=[dict(limbs=list(LAND_LIMBS), at_s=.05, ramp_s=.04)])
     controller = kind(np.array(params)[None], names)
     rr = names.index("RR_J1_joint")
     assert np.isclose(controller.poses[0, controller.TUCK, rr],
@@ -155,6 +163,18 @@ def self_test():
     np.testing.assert_allclose(q0, q1, err_msg="landing extension jumped at its start")
     q2 = controller.target(.10, quat, contact, np.array([True]))
     np.testing.assert_allclose(q2[0], controller.home, err_msg="landing did not reach HOME")
+    # A landing pose must be held, then released to HOME.
+    v["momentum"]["flight"].update(land_pose={"LM": (0., 0., -1.)}, hold_s=.02, release_s=.04)
+    controller = kind(np.array(params)[None], names)
+    controller.stage[:] = controller.TUCK
+    controller.started[:] = controller.tuck_time[:] = 0
+    controller.start_pose[:] = controller.poses[:, controller.TUCK]
+    controller.measured_momentum = np.zeros((1, 6))
+    lm = names.index("LM_J2_joint")
+    held = [controller.target(t, quat, contact, np.array([True]))[0, lm]
+            for t in (.05, .10, .105, .17)]
+    np.testing.assert_allclose(held[1:3], -1., err_msg="landing pose was not held")
+    assert np.isclose(held[3], HOME["LM_J2_joint"]), "landing pose was not released to HOME"
     print("Checks passed: centroidal momentum, contact/COM/peak gates, timeout, continuity "
           "and landing extension.")
 
@@ -176,13 +196,16 @@ def main():
     parser.add_argument("--land-at", type=float, help="s after TUCK starts to open limbs to HOME")
     parser.add_argument("--land-ramp", type=float, default=.06)
     parser.add_argument("--land-limbs", nargs="+", choices=LAND_LIMBS, default=list(LAND_LIMBS))
+    parser.add_argument("--landing", choices=LANDINGS, help="named landing preset")
     parser.add_argument("--compare-flight", action="store_true",
                         help="grid of rear tuck, claw flight and landing time on --resume")
     args = parser.parse_args()
     if args.self_test:
         self_test()
         return
-    flight_flags = (args.tuck, args.claw_flight, args.land_at)
+    if args.land_at is not None and args.landing is not None:
+        parser.error("choose --land-at or --landing")
+    flight_flags = (args.tuck, args.claw_flight, args.land_at, args.landing)
     if args.compare_flight and (not args.resume or any(x is not None for x in flight_flags)):
         parser.error("--compare-flight needs --resume and supplies the flight settings itself")
     if args.video and (args.compare or args.compare_flight):
@@ -211,7 +234,9 @@ def main():
             if args.claw_flight is not None:
                 f["claw"] = args.claw_flight
             if args.land_at is not None:
-                f.update(land_s=args.land_at, land_ramp_s=args.land_ramp, land=args.land_limbs)
+                f["land"] = [dict(limbs=args.land_limbs, at_s=args.land_at, ramp_s=args.land_ramp)]
+            if args.landing is not None:
+                f.update(copy.deepcopy(LANDINGS[args.landing]))
     if args.compare_flight:
         base, variants = variants[0], []
         for tuck in TUCKS:
@@ -220,19 +245,20 @@ def main():
                     v = copy.deepcopy(base)
                     v["momentum"]["flight"] = dict(tuck=TUCKS[tuck], claw=claw)
                     if land is not None:
-                        v["momentum"]["flight"].update(land_s=land, land_ramp_s=args.land_ramp,
-                                                       land=list(LAND_LIMBS))
+                        v["momentum"]["flight"]["land"] = [dict(
+                            limbs=list(LAND_LIMBS), at_s=land, ramp_s=args.land_ramp)]
                     variants.append(v)
     for v in variants:
         o = v["momentum"]
         f = o.get("flight", {})
-        tuck = f.get("tuck", {})
+        poses = (f.get("tuck", {}), f.get("land_pose", {}))
         if (any(leg not in ("LF", "LM", "LR") or not 1 <= len(values) <= (4 if leg == "LF" else 3)
-                or not np.isfinite(values).all() for leg, values in tuck.items())
+                or not np.isfinite(values).all() for p in poses for leg, values in p.items())
                 or f.get("claw", "tuck") not in ("tuck", "extended")
-                or (f.get("land_s") is not None and (
-                    not 0 <= f["land_s"] <= .4 or not .02 <= f["land_ramp_s"] <= .2
-                    or not f["land"] or not set(f["land"]) <= set(LAND_LIMBS)))):
+                or not 0 <= f.get("hold_s", 0) <= 1 or not .02 <= f.get("release_s", .3) <= 1
+                or any(not 0 <= e["at_s"] <= .4 or not .02 <= e["ramp_s"] <= .2
+                       or not e["limbs"] or not set(e["limbs"]) <= set(LAND_LIMBS)
+                       for e in f.get("land", ()))):
             parser.error("invalid bounded flight settings")
         numbers = [*o["load"], *o["drive"], o["middle_start_s"], o["middle_ramp_s"],
                    o["middle_hold_s"], o["claw_delay_s"], o.get("max_wait_s", .03),
