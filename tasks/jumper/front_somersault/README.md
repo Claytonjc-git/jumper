@@ -92,6 +92,62 @@ self-checks with negative controls, timeout and interrupted-drive continuity
 checks, registry/parity tests, Ruff and independent code review. No new
 policy training or physical-robot test was performed for this experiment.
 
+### Flight tuck shape and landing extension
+
+The `momentum` table accepts an optional `flight` table. `tuck` sets absolute
+flight-tuck targets per left leg, from J0 (`{"LF": [...], "LM": [...], "LR": [...]}`);
+the right legs mirror by name. `claw: "extended"` holds the
+PUSH arm pose through flight. `land_s` opens the `land` limbs to HOME, starting
+that many seconds after TUCK begins, over `land_ramp_s`. The landing ramp starts
+from the live command. Without `flight`, the replay matches the run above exactly.
+
+```sh
+python tools/probe_momentum_launch.py --resume tasks/jumper/front_somersault/momentum_launch.json --tuck tuned --land-at .20 --land-ramp .04 --land-limbs claw --video outputs/flight_tuned_claw.mp4
+python tools/probe_momentum_launch.py --resume tasks/jumper/front_somersault/momentum_launch.json --compare-flight --output outputs/flight_compare
+```
+
+In flight the angular momentum stays fixed (0.191 N*m*s at takeoff for every
+variant below). Limb poses change only the pitch inertia and, through it, the spin
+rate. At takeoff the claws carry 46% of the 21.0 g*m^2 pitch inertia. Measured
+on the Windows AMD CPU:
+
+| Flight setting | Flight turn | Flight | Claw/middle/rear touchdown | Peak non-foot impact | Joint overshoot |
+|---|---:|---:|---|---:|---:|
+| Original tuck | 187.9 deg | 0.275 s | 1.690/1.690/1.250 s | 113.7 N | 0.054 rad |
+| Original rear tuck, claws extended | 146.4 deg | 0.285 s | lands on body | 214.7 N | 0 |
+| `inward` rear tuck | 269.0 deg | 0.315 s | 1.290/1.560/1.490 s | 139.8 N | 0.058 rad |
+| `inward`, claws extended | 161.7 deg | 0.280 s | lands on body | 386.5 N | 0 |
+| `inward`, all limbs open at 0.24 s over 0.04 s | 243.6 deg | 0.290 s | 1.290/1.290/1.265 s | 64.1 N | 0 |
+| `tuned` tuck | 289.7 deg | 0.315 s | 1.290/1.300/1.305 s | 212.3 N | 0 |
+| `tuned`, claws open at 0.20 s over 0.04 s | 276.7 deg | 0.315 s | 1.290/1.300/1.290 s | 104.2 N | 0 |
+
+The `inward` rear tuck alone turns the robot 269 degrees in flight. The claws
+touch down first, about 0.2 s before the rear feet, and the LF/RF J3 joints
+overshoot their limits. Holding the claws extended removes about 40-110 degrees
+of flight turn, and the robot lands on its body. If the robot tucks and then
+opens all limbs at 0.24 s, the three limb pairs touch down within 25 ms and the
+J3 overshoot is gone. This setting costs 26 degrees of flight turn. In every
+setting, touchdown occurs at about 1.29 s with the nose still down, because the
+total turn at touchdown is 310-336 degrees. A clean landing needs more spin
+before touchdown, not only a different landing pose. The `inward` tuck also
+shows 2.3 N of self-contact in flight (1.14-1.20 s), above the 1 N gate: its
+rear calf touches the middle calf.
+
+The `tuned` tuck moves the claw, middle and rear legs together. A static search
+kept 8 mm between limbs along the takeoff -> tuck -> HOME joint paths. It found
+poses near 9.5 g*m^2 (original tuck 12.7, `inward` 9.7 but not clear). A
+10-generation cross-entropy search then maximized simulated flight turn. The
+servos reach 13-22 rad/s during the tuck, where the torque-speed curve limits
+them, so the lowest static inertia does not always give the largest turn.
+
+Unchanged, the `tuned` tuck lands the hard palm links first (212 N). If the claws
+open at 0.20 s, all three limb pairs touch down within 10 ms and the robot
+passes 11 of 13 gates, including the 270-degree flight turn and joint limits.
+The remaining failures are the claw-propulsion gate (palm impulse -0.326 N*s,
+which is the braking that makes the spin) and 104 N non-foot impact at 1.31 s.
+At that time the robot has turned 344.6 degrees and squats onto its fingers,
+palms and leg links: the landing speed is the cause, not the flip shape.
+
 ### Middle-leg lift and forward-arm tuck experiment
 
 This earlier preview interpreted the tuck as an above-body pose. The corrected

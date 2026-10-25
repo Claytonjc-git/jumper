@@ -3,11 +3,14 @@
 
 python tools/probe_momentum_launch.py --compare --output outputs/momentum_compare
 python tools/probe_momentum_launch.py --resume <candidate.json> --video outputs/momentum.mp4
+python tools/probe_momentum_launch.py --resume <candidate.json> --tuck inward --land-at .18
+python tools/probe_momentum_launch.py --resume <candidate.json> --compare-flight --output <dir>
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -25,6 +28,13 @@ ROOT = Path(__file__).resolve().parents[1]
 # every sample is still integrated with the original limited servos.
 DRIVES = {"modest": (.2, -1.25, -.35), "medium": (.45, -1.30, -.35),
           "rear_like": (.65, -1.35, -.35)}
+# Absolute left-leg flight-tuck targets from J0 [rad], right legs mirrored. "inward" turns
+# 269 degrees in flight but its rear calf touches the middle calf (2.3 N). "tuned": 8 mm
+# clearance search, then simulated cross-entropy on flight turn: 289.7 degrees, no self-contact.
+TUCKS = {"original": {}, "inward": {"LR": (-.197, .925, -.671)},
+         "tuned": {"LF": (-.4645, .5933, -1.2077, -1.9667), "LM": (-.1994, .6752, -1.2797),
+                   "LR": (-.1831, .3906, -.8993)}}
+LAND_LIMBS = ("claw", "middle", "rear")
 
 
 def variant(preset, delay=0., load_back=False, trigger="delay", opening=0.):
@@ -36,6 +46,28 @@ def variant(preset, delay=0., load_back=False, trigger="delay", opening=0.):
                     drive=DRIVES.get(preset, DRIVES["modest"]),
                     middle_start_s=0., middle_ramp_s=.07, middle_hold_s=.025,
                     claw_delay_s=delay, trigger=trigger, max_wait_s=.03))
+
+
+def landing(data, momentum):
+    """Takeoff spin and, per limb pair, first touchdown and peak terrain force after it."""
+    air = (data["contact"].sum(axis=1) == 0) & (data["body_force"] < 1.)
+    run, longest, start, best = 0, 0, 0, 0
+    for k, value in enumerate(air):
+        start = k if value and run == 0 else start
+        run = run+1 if value else 0
+        if run > longest:
+            longest, best = run, start
+    down = best+longest
+    after = slice(down, down+round(.25/physics.CONTROL_DT))
+    out = dict(takeoff_s=float(data["t"][best]), takeoff_Hy_Nms=float(momentum[best, 4]),
+               touchdown_s=float(data["t"][min(down, len(air)-1)]),
+               landing_body_force_N=float(data["body_force"][after].max()))
+    for name, ids in (("claw", [0, 1]), ("middle", [2, 3]), ("rear", [4, 5])):
+        hit = np.flatnonzero(data["contact"][down:, ids].any(axis=1))
+        out[f"{name}_touchdown_s"] = float(data["t"][down+hit[0]]) if len(hit) else None
+        out[f"{name}_landing_force_N"] = float(
+            np.linalg.norm(data["foot_force"][after][:, ids], axis=-1).max())
+    return out
 
 
 def self_test():
@@ -107,7 +139,24 @@ def self_test():
     q0 = controller.target(.02, quat, contact, np.array([True]))
     q1 = controller.target(.03, quat, contact, np.array([True]))
     np.testing.assert_allclose(q0[:, controller.middle_ids], q1[:, controller.middle_ids])
-    print("Checks passed: centroidal momentum, contact/COM/peak gates, timeout and continuity.")
+    # Landing must start from the live tuck command, not jump, and finish at HOME.
+    v["momentum"]["flight"] = dict(tuck=TUCKS["inward"], land_s=.05, land_ramp_s=.04,
+                                   land=list(LAND_LIMBS))
+    controller = kind(np.array(params)[None], names)
+    rr = names.index("RR_J1_joint")
+    assert np.isclose(controller.poses[0, controller.TUCK, rr],
+                      HOME["RR_J1_joint"]-(.925-HOME["LR_J1_joint"])), "rear tuck lost its mirror"
+    controller.stage[:] = controller.TUCK
+    controller.started[:] = controller.tuck_time[:] = 0
+    controller.start_pose[:] = controller.poses[:, controller.TUCK]
+    controller.measured_momentum = np.zeros((1, 6))
+    q0 = controller.target(.045, quat, contact, np.array([True]))
+    q1 = controller.target(.05, quat, contact, np.array([True]))
+    np.testing.assert_allclose(q0, q1, err_msg="landing extension jumped at its start")
+    q2 = controller.target(.10, quat, contact, np.array([True]))
+    np.testing.assert_allclose(q2[0], controller.home, err_msg="landing did not reach HOME")
+    print("Checks passed: centroidal momentum, contact/COM/peak gates, timeout, continuity "
+          "and landing extension.")
 
 
 def main():
@@ -122,11 +171,21 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT/"outputs/momentum_launch")
     parser.add_argument("--video", type=Path)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--tuck", choices=TUCKS)
+    parser.add_argument("--claw-flight", choices=("tuck", "extended"))
+    parser.add_argument("--land-at", type=float, help="s after TUCK starts to open limbs to HOME")
+    parser.add_argument("--land-ramp", type=float, default=.06)
+    parser.add_argument("--land-limbs", nargs="+", choices=LAND_LIMBS, default=list(LAND_LIMBS))
+    parser.add_argument("--compare-flight", action="store_true",
+                        help="grid of rear tuck, claw flight and landing time on --resume")
     args = parser.parse_args()
     if args.self_test:
         self_test()
         return
-    if args.video and args.compare:
+    flight_flags = (args.tuck, args.claw_flight, args.land_at)
+    if args.compare_flight and (not args.resume or any(x is not None for x in flight_flags)):
+        parser.error("--compare-flight needs --resume and supplies the flight settings itself")
+    if args.video and (args.compare or args.compare_flight):
         parser.error("select a single candidate before recording video")
     if ((args.resume or args.compare) and (args.load_back or any(x is not None for x in
             (args.preset, args.delay, args.trigger, args.opening)))):
@@ -144,8 +203,37 @@ def main():
             parser.error("resume selects a single candidate")
         source = json.loads(args.resume.read_text())
         variants, params = [source["variant"]], source["params"]
+    if any(x is not None for x in flight_flags):
+        for v in variants:
+            f = v["momentum"].setdefault("flight", {})
+            if args.tuck is not None:
+                f["tuck"] = TUCKS[args.tuck]
+            if args.claw_flight is not None:
+                f["claw"] = args.claw_flight
+            if args.land_at is not None:
+                f.update(land_s=args.land_at, land_ramp_s=args.land_ramp, land=args.land_limbs)
+    if args.compare_flight:
+        base, variants = variants[0], []
+        for tuck in TUCKS:
+            for claw in ("tuck", "extended"):
+                for land in (None, .14, .18, .22):
+                    v = copy.deepcopy(base)
+                    v["momentum"]["flight"] = dict(tuck=TUCKS[tuck], claw=claw)
+                    if land is not None:
+                        v["momentum"]["flight"].update(land_s=land, land_ramp_s=args.land_ramp,
+                                                       land=list(LAND_LIMBS))
+                    variants.append(v)
     for v in variants:
         o = v["momentum"]
+        f = o.get("flight", {})
+        tuck = f.get("tuck", {})
+        if (any(leg not in ("LF", "LM", "LR") or not 1 <= len(values) <= (4 if leg == "LF" else 3)
+                or not np.isfinite(values).all() for leg, values in tuck.items())
+                or f.get("claw", "tuck") not in ("tuck", "extended")
+                or (f.get("land_s") is not None and (
+                    not 0 <= f["land_s"] <= .4 or not .02 <= f["land_ramp_s"] <= .2
+                    or not f["land"] or not set(f["land"]) <= set(LAND_LIMBS)))):
+            parser.error("invalid bounded flight settings")
         numbers = [*o["load"], *o["drive"], o["middle_start_s"], o["middle_ramp_s"],
                    o["middle_hold_s"], o["claw_delay_s"], o.get("max_wait_s", .03),
                    v["opening"], v["yaw"], v["open_seconds"]]
@@ -190,6 +278,7 @@ def main():
             first = np.flatnonzero(data["stage"] == kind.PUSH)
             report["peak_self_force_N"] = float(data["self_force"].max())
             report["joint_limit_overshoot_rad"] = max(0., data["joint_limit_violation"])
+            report.update(landing(data, momentum[i]))
             if len(first):
                 k = first[0]
                 report.update(first_push_frame_s=float(data["t"][k]),

@@ -1,4 +1,8 @@
-"""Original short handoff with optional rearward middle drive and causal peak release."""
+"""Original short handoff with optional rearward middle drive and causal peak release.
+
+Optional `flight` settings change the tuck pose per leg, hold the claws extended, or open
+chosen limbs to HOME at a set time after TUCK starts, before touchdown.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +12,8 @@ import mujoco
 import numpy as np
 
 from ..common.constants import HOME
+
+LIMBS = {"claw": ("LF", "RF"), "middle": ("LM", "RM"), "rear": ("LR", "RR")}
 
 
 class MomentumMeter:
@@ -51,6 +57,24 @@ def controller_type(base, variants):
             self.launch_momentum = np.full((n, 6), np.nan)
             self.launch_time = np.full(n, np.nan)
             self.release_reason = [None]*n
+            self.tuck_time = np.full(n, np.nan)
+            self.land_time = np.full(n, np.nan)
+            self.land_from = np.zeros((n, len(names)))
+            self.home = np.array([HOME[name] for name in names])
+            for i, o in enumerate(self.options):
+                f = o.get("flight", {})
+                if f.get("claw", "tuck") == "extended":
+                    claw = [k for k, name in enumerate(names) if name[:2] in LIMBS["claw"]]
+                    self.poses[i, self.TUCK, claw] = self.poses[i, self.PUSH, claw]
+                # Absolute left-leg tuck targets from J0; the right leg mirrors by name.
+                for left_leg, values in f.get("tuck", {}).items():
+                    right_leg = "R"+left_leg[1]
+                    for j, value in enumerate(values):
+                        left, right = f"{left_leg}_J{j}_joint", f"{right_leg}_J{j}_joint"
+                        sign = 1 if left == "LF_J1_joint" else -1
+                        self.poses[i, self.TUCK, names.index(left)] = value
+                        self.poses[i, self.TUCK, names.index(right)] = (
+                            HOME[right]+sign*(value-HOME[left]))
             for i, o in enumerate(self.options):
                 if not o.get("middle_enabled", True):
                     continue
@@ -134,6 +158,24 @@ def controller_type(base, variants):
                     self.release_reason[i] = (
                         "delay" if o.get("trigger", "delay") == "delay" else
                         "peak_decline" if self.declining[i] >= 2 and measured[i, 2] > 0 else "max_wait")
+            self.tuck_time[(before == self.PUSH) & (self.stage == self.TUCK)] = time
+            for i, o in enumerate(self.options):
+                f = o.get("flight", {})
+                if f.get("land_s") is None or np.isnan(self.tuck_time[i]):
+                    continue
+                # Open the landing limbs to HOME before touchdown, from the live command.
+                # ponytail: timed from TUCK start; a measured-rotation trigger if launches vary.
+                ids = [k for k, name in enumerate(self.names)
+                       if name[:2] in sum((LIMBS[g] for g in f["land"]), ())]
+                if np.isnan(self.land_time[i]):
+                    if time-self.tuck_time[i] < f["land_s"]:
+                        continue
+                    self.land_time[i] = time
+                    self.land_from[i] = self.current[i]
+                u = np.clip((time-self.land_time[i])/f["land_ramp_s"], 0, 1)
+                u = u*u*(3-2*u)
+                self.current[i, ids] = (self.land_from[i, ids]
+                                        + (self.home[ids]-self.land_from[i, ids])*u)
             changed = before != self.stage
             # The middle override changes the outgoing command, so save that
             # command at every transition rather than the parent's earlier copy.
