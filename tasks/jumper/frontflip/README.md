@@ -37,7 +37,8 @@ The impact and claw gates changed on 2026-10-25. The robot weighs 2.54 kg (25 N)
   (-0.326 N*s), and that braking below the COM produces 70% of the takeoff spin.
   The old gate required forward impulse, which reduces the spin.
 
-The training terminations use the same 10 N and 50 N limits. A negative control,
+Training ends an attempt at 10 N shell force or 100 N limb force; limb force
+between 35 N and 100 N is penalized instead (see below). A negative control,
 the original tuck with claws extended, lands on the shell at 214.7 N and fails both
 gates. In the training environment with zero residual, 1 of 8 randomized
 environments (foot friction, COM offset) completed the flip. The other 7 failed
@@ -505,12 +506,23 @@ longer than 15 seconds. The notebook already supplies these defaults.
 
 Tracking starts with the jump recipe's scales, plus orientation error scale
 0.15 rad², angular velocity scale 4 (rad/s)² and accumulated-turn scale
-0.25 rad², each weighted 2. The torque-headroom penalty is -2. These are
+0.1 rad², each weighted 2. The torque-headroom penalty is -2. These are
 starting settings, not convergence measurements. Episode duration is the
-reference length plus 0.5 s. Training uses 80% random reference-state starts
-(including angular velocity) and 20% HOME starts; replay starts from HOME.
-Inversion is allowed. Shell force above 10 N, limb-link force above 50 N and
-self-collisions terminate attempts.
+reference length plus 0.5 s. Training uses 50% random reference-state starts
+(including angular velocity) and 50% HOME starts; replay starts from HOME.
+Inversion is allowed. Shell force above 10 N, limb-link force above 100 N and
+self-collisions terminate attempts. Limb force above 35 N (the reference's own
+landing peak) costs 20 per N per second, so a 30 ms landing at 50 N costs about
+9 and one at 100 N about 39. The 50 N qualification limit stays the pass/fail
+line: read it from the `peak_limb_force` episode metric.
+
+These settings follow a 64-environment probe of the 0.8-RSI, 50 N-termination
+policy at iteration 1500 (Windows AMD CPU, native backend, training
+randomization, every attempt from HOME). 46 of 64 attempts ended at 1.27 s with
+limb force above 50 N, at 5.7 rad of turn, about 25 ms before and 0.4 rad short
+of the reference touchdown (1.295 s, 6.12 rad). With the 100 N termination the
+same policy completes 56 of 64 attempts, with a median peak limb force of 66 N;
+17 of 64 complete under 50 N. The landing, not the airborne turn, is the gap.
 
 Watch the individual joint, orientation, angular-velocity, forward-turn and
 contact tracking rewards together with episode length and impact terminations.

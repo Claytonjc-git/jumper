@@ -18,11 +18,17 @@ from ..jump.env_cfg import env_cfg as jump_env_cfg
 from ..jump.mdp.observations import FUTURE_OFFSETS
 from . import mdp
 from .physics import (
-    CHASSIS_FORCE_LIMIT, CONTROL_DT, LIMB_FORCE_LIMIT, PHYSICS_DT, SUPPORT_GEOMS, T_GO, robot_cfg,
+    CHASSIS_FORCE_LIMIT, CONTROL_DT, PHYSICS_DT, SUPPORT_GEOMS, T_GO, robot_cfg,
     sensors,
 )
 
 REFERENCE = Path(__file__).resolve().parent / "ref" / "frontflip.npz"
+# Limb impacts end an attempt only above 100 N; between 35 N (the reference's own
+# landing peak) and 100 N they cost reward instead. LIMB_FORCE_LIMIT (50 N) stays
+# the pass/fail line, read from the peak_limb_force metric.
+LIMB_TERMINATION_N = 100.0
+LIMB_PENALTY_FROM_N = 35.0
+RSI_FRACTION = 0.5
 
 
 def env_cfg(asset: Path | None = None, play: bool = False):
@@ -55,17 +61,17 @@ def env_cfg(asset: Path | None = None, play: bool = False):
     )
     cfg.commands["jump"] = mdp.FrontflipCommandCfg(
         entity_name="robot", motion_file=str(path), allow_diagnostic=diagnostic,
-        command_delay_range=(T_GO, T_GO), rsi_fraction=0.0 if play else 0.8,
+        command_delay_range=(T_GO, T_GO), rsi_fraction=0.0 if play else RSI_FRACTION,
     )
     reset = cfg.events["reset_from_reference"]
     reset.func = mdp.reset_from_reference_phase
-    reset.params = {"command_name": "jump", "rsi_fraction": 0.0 if play else 0.8,
+    reset.params = {"command_name": "jump", "rsi_fraction": 0.0 if play else RSI_FRACTION,
                     "phase_range": (0.0, 0.9)}
     # External pushes obscure the initial physics-reference feasibility measurement.
     cfg.events.pop("push_robot", None)
     cfg.terminations.pop("fell_over", None)
     for name, limit in (("chassis_ground_contact", CHASSIS_FORCE_LIMIT),
-                        ("body_ground_contact", LIMB_FORCE_LIMIT), ("self_collision", 1.0)):
+                        ("body_ground_contact", LIMB_TERMINATION_N), ("self_collision", 1.0)):
         cfg.terminations[name] = TerminationTermCfg(
             func=mdp.collision_failure, params={"sensor_name": name, "force_threshold": limit}
         )
@@ -78,11 +84,16 @@ def env_cfg(asset: Path | None = None, play: bool = False):
         func=mdp.ref_angular_velocity, weight=2.0, params={"sigma_sq": 4.0}
     )
     cfg.rewards["ref_forward_rotation"] = RewardTermCfg(
-        func=mdp.ref_forward_rotation, weight=2.0, params={"sigma_sq": 0.25}
+        func=mdp.ref_forward_rotation, weight=2.0, params={"sigma_sq": 0.1}
     )
     cfg.rewards["ref_contact"] = RewardTermCfg(
         func=mdp.ref_contact_found, weight=2.5,
         params={"command_name": "jump"},
+    )
+    # A 30 ms landing costs about 9 at 50 N and 39 at 100 N; a 1.27 s termination forfeits ~38.
+    cfg.rewards["limb_impact"] = RewardTermCfg(
+        func=mdp.contact_force_excess, weight=-20.0,
+        params={"sensor_name": "body_ground_contact", "threshold": LIMB_PENALTY_FROM_N},
     )
     cfg.rewards["torque_headroom"] = RewardTermCfg(
         func=torque_headroom_cost, weight=-2.0,
@@ -92,7 +103,10 @@ def env_cfg(asset: Path | None = None, play: bool = False):
         func=peak_actuator_force, reduce="max",
         params={"asset_cfg": SceneEntityCfg("robot", actuator_names=(".*",))},
     )
-    # Include the HOME lead-in for non-RSI attempts; 20% train from HOME as well.
+    cfg.metrics["peak_limb_force"] = MetricsTermCfg(
+        func=mdp.contact_force, reduce="max", params={"sensor_name": "body_ground_contact"},
+    )
+    # Include the HOME lead-in for attempts that start from HOME instead of a reference phase.
     cfg.episode_length_s = float(arrays["t"][-1]) + 0.5
     cfg.viewer.distance = 1.2
 

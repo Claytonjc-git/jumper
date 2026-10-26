@@ -279,6 +279,16 @@ def ref_contact_found(env, command_name="jump"):
     return (actual == sample["contact"].bool()).float().mean(dim=1)
 
 
+def contact_force(env, sensor_name="body_ground_contact"):
+    """Largest terrain force on the sensor's geoms across this step's substeps [N]."""
+    history = env.scene[sensor_name].data.force_history
+    return history.norm(dim=-1).flatten(1).max(dim=1).values
+
+
+def contact_force_excess(env, sensor_name="body_ground_contact", threshold=35.0):
+    return (contact_force(env, sensor_name) - threshold).clamp_min(0.0)
+
+
 def collision_failure(env, sensor_name, force_threshold=1.0):
     sensor = env.scene[sensor_name]
     history = sensor.data.force_history
