@@ -551,6 +551,28 @@ encoder bias are sampled at every reset; their ranges stay at nominal for the fi
 ranges, sampled once at startup. A 2,000-update run spends its last 500 updates at
 full randomization.
 
+The run with those settings (run 2, commit `9d1578e`) learned to stand still. By
+update 450 no HOME attempt turned more than 0.31 rad, and its action std grew from
+0.60 to 1.23. PPO scores a policy under its own sampling noise. With zero residual
+and nominal physics, a flip from HOME returns 76.0 without noise and 71.7 at action
+std 0.15 (1/64 crashes). At std 0.6 it returns -49.5 (64/64 crash), and standing
+still returns 47.2. Three changes follow:
+
+- PPO starts at action std 0.15 with no entropy bonus, so the noise cannot grow.
+- Up to 1.10 s, an attempt ends when its forward turn is 1.5 rad from the
+  reference. Standing still lags 2.6 rad by then; real flips lag 1.05 rad at most.
+  Standing now ends at 0.985 s and returns -33.3.
+- `flip_landing` pays from 1.30 s (the reference touchdown) to the episode end,
+  while at least three feet are down and the body is within 30 deg of upright. The
+  pay is exp(-(turn - 2 pi)^2 / 0.25), weighted 25: at most 55, about the
+  termination penalty. Standing earns nothing.
+
+With all three, zero residual from HOME returns 127.1 under nominal physics
+(`flip_landing` 51.1, 64/64 land) and 124.6 at std 0.15. With full randomization
+it returns -32.4, and 28/64 land. A crash on the shell still ends the attempt
+first: with impact terminations off, the run 1 policy crashes, rolls back upright
+and earns `flip_landing` in 60/64 attempts.
+
 These settings follow a 64-environment probe of the 0.8-RSI, 50 N-termination
 policy at iteration 1500 (Windows AMD CPU, native backend, training
 randomization, every attempt from HOME). 46 of 64 attempts ended at 1.27 s with

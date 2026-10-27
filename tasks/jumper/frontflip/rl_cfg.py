@@ -10,8 +10,12 @@ def agent_cfg() -> RslRlOnPolicyRunnerCfg:
         experiment_name="jumper.frontflip",
         actor_hidden_dims=(512, 256, 128),
         critic_hidden_dims=(512, 256, 128),
-        entropy_coef=0.005,
-        init_std=0.6,
+        # Zero-residual flips from HOME under action noise (64 attempts, Windows AMD CPU, native,
+        # 2026-10-26): std 0.15 returns 71.7 with 1/64 crashes, std 0.6 returns -49.5 with
+        # 64/64, and standing still returns 47.2. At 0.6 run 2 learned to stand; with an
+        # entropy bonus its std then grew to 1.23.
+        entropy_coef=0.0,
+        init_std=0.15,
         # No augmentation until a forward-rotation reference mirror is verified.
         symmetry=False,
     )

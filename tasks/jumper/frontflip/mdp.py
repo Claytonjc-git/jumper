@@ -279,6 +279,18 @@ def ref_contact_found(env, command_name="jump"):
     return (actual == sample["contact"].bool()).float().mean(dim=1)
 
 
+def flip_landing(env, command_name="jump", sigma_sq=0.25, upright_cos=0.866, min_feet=3,
+                 from_s=1.30):
+    """Closeness of the accumulated turn to one revolution, while landed on the feet and upright."""
+    reference, _, _, tsg = ref_state(env, command_name)
+    turn = env.command_manager.get_term(command_name).measured_rotation()
+    quat = env.scene["robot"].data.root_link_quat_w
+    upright = 1 - 2 * (quat[:, 1].square() + quat[:, 2].square())
+    landed = (support_contacts(env).sum(dim=1) >= min_feet) & (upright > upright_cos)
+    active = tsg + reference.t_go >= from_s
+    return torch.exp(-(turn - 2 * torch.pi).square() / sigma_sq) * (landed & active).float()
+
+
 def contact_force(env, sensor_name="body_ground_contact"):
     """Largest terrain force on the sensor's geoms across this step's substeps [N]."""
     history = env.scene[sensor_name].data.force_history
@@ -323,6 +335,14 @@ class RandomizationRamp:
 def _range_copy(params):
     return {key: dict(value) if isinstance(value, dict) else value for key, value in params.items()
             if key in ("ranges", "bias_range")}
+
+
+def rotation_lag(env, command_name="jump", threshold=1.5, until_s=1.10):
+    """End an attempt whose forward turn is `threshold` rad from the reference before `until_s`."""
+    reference, sample, _, tsg = ref_state(env, command_name)
+    cmd = env.command_manager.get_term(command_name)
+    lag = (cmd.measured_rotation() - sample["forward_rotation"]).abs()
+    return (lag > threshold) & (tsg + reference.t_go <= until_s)
 
 
 def collision_failure(env, sensor_name, force_threshold=1.0):

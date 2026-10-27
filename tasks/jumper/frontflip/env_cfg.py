@@ -39,6 +39,7 @@ SELF_PENALTY_FROM_N = 5.0
 # ending on self-contact at 1.19 s, zero residual 12.8 by landing (41/64 then end at touchdown);
 # landing wins only above 25. At 50 the same probe gives -47.4 against -35.0.
 TERMINATION_PENALTY = 50.0
+ROTATION_LAG_RAD = 1.5
 RSI_FRACTION = 0.5
 # PPO updates with nominal physics, then over which friction/COM/bias widen to full.
 # With zero residual, 64/64 HOME attempts qualify without randomization and 4/64 with it
@@ -104,6 +105,13 @@ def env_cfg(asset: Path | None = None, play: bool = False):
         cfg.terminations[name] = TerminationTermCfg(
             func=mdp.collision_failure, params={"sensor_name": name, "force_threshold": limit}
         )
+    # Up to 1.10 s, standing still lags 2.6 rad (run 2, update 450) and real flips lag 1.05 rad at
+    # most (run 1 checkpoints, zero residual with full randomization; same probe as
+    # TERMINATION_PENALTY). Later, under-rotated flips near touchdown would end too.
+    cfg.terminations["rotation_lag"] = TerminationTermCfg(
+        func=mdp.rotation_lag,
+        params={"command_name": "jump", "threshold": ROTATION_LAG_RAD, "until_s": 1.10},
+    )
 
     # Starting scales in rad² and (rad/s)², pending measured policy tracking runs.
     cfg.rewards["ref_base_ori"] = RewardTermCfg(
@@ -127,6 +135,11 @@ def env_cfg(asset: Path | None = None, play: bool = False):
     cfg.rewards["self_impact"] = RewardTermCfg(
         func=mdp.contact_force_excess, weight=-20.0,
         params={"sensor_name": "self_collision", "threshold": SELF_PENALTY_FROM_N},
+    )
+    # At most 25 x 2.2 s = 55 from the reference touchdown to the episode end, about the
+    # termination penalty: a completed, upright landing is worth what a crash costs.
+    cfg.rewards["flip_landing"] = RewardTermCfg(
+        func=mdp.flip_landing, weight=25.0, params={"command_name": "jump"},
     )
     cfg.rewards["termination"] = RewardTermCfg(
         func=envs_mdp.is_terminated, weight=-TERMINATION_PENALTY / cfg.sim.mujoco.timestep
