@@ -132,9 +132,11 @@ def env_cfg(asset: Path | None = None, play: bool = False):
         func=mdp.ref_contact_found, weight=2.5,
         params={"command_name": "jump"},
     )
-    # A 30 ms landing costs about 9 at 50 N and 39 at 100 N; a 1.27 s termination forfeits ~38.
+    # Landing cost by peak force, run 5 and zero residual under full randomization (960 HOME
+    # attempts, Windows AMD CPU, native, 2026-10-27): 45-55 N 9.8, 65-75 N 28.5, 75-100 N 50.
+    # At weight 20 run 5 update 1500 paid 7.9 for its 65 N claw-first landing and kept it.
     cfg.rewards["limb_impact"] = RewardTermCfg(
-        func=mdp.contact_force_excess, weight=-20.0,
+        func=mdp.contact_force_excess, weight=-60.0,
         params={"sensor_name": "body_ground_contact", "threshold": LIMB_PENALTY_FROM_N},
     )
     cfg.rewards["self_impact"] = RewardTermCfg(

@@ -594,6 +594,18 @@ middle calf takes 55 N. The reference commands mirror within 0.043 rad, and a
 zero-residual flip mirrors onto itself within 0.09 rad except during the 15 ms of
 touchdown impact. So PPO now uses the mirror augmentation and mirror loss.
 
+Run 5 (commit `1284d86`) is symmetric: the two claws match within 0.08 rad, and
+the middle calf no longer touches. Under full randomization, update 1500 lands
+190/192 HOME attempts; updates 1750-1999 land 128-145, losing the rest to limb
+hits above 100 N. However, every landing exceeds the 50 N limb limit: 65 N
+median at 1500 under nominal physics, against 35 N for zero residual. The policy
+jumps higher (apex 0.32 m, not 0.27 m) and touches down at 6.4 rad, not 6.12 rad.
+So the claws land alone, and the rear feet follow 30-45 ms later, where the
+reference lands all six within 10 ms. At weight 20, `limb_impact` charged that
+landing 7.9, so `limb_impact` now uses weight 60. Re-priced over the same
+randomized probe attempts, a 45-55 N landing costs 9.8, a 65-75 N landing 28.5,
+and a 75-100 N landing 50, no more than the termination penalty alone.
+
 These settings follow a 64-environment probe of the 0.8-RSI, 50 N-termination
 policy at iteration 1500 (Windows AMD CPU, native backend, training
 randomization, every attempt from HOME). 46 of 64 attempts ended at 1.27 s with
