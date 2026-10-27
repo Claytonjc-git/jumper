@@ -606,6 +606,16 @@ landing 7.9, so `limb_impact` now uses weight 60. Re-priced over the same
 randomized probe attempts, a 45-55 N landing costs 9.8, a 65-75 N landing 28.5,
 and a 75-100 N landing 50, no more than the termination penalty alone.
 
+Run 6 (commit `e547637`, weight 60, from scratch) lands no flip. Update 1000 ends
+64/64 HOME attempts on `rotation_lag`. Update 1500 lands 0/64 nominal and 19/192
+randomized, under-rotated at 5.0-5.2 rad and 235 N. Updates 1750 and 1999 end
+every attempt on `self_collision` in the air, 1.8-3.0 rad into the turn, with the
+claws clamped together. Early landings above 100 N paid the weight-60 cost and the
+termination, so ending in the air cost less. Run 7 therefore starts from run 5
+update 1500 and trains 250 more updates at weight 25, against a control at weight
+20 (commit `1284d86`) from the same checkpoint
+(`model_1500.pt`, SHA-256 `43b747b3cd26…`).
+
 These settings follow a 64-environment probe of the 0.8-RSI, 50 N-termination
 policy at iteration 1500 (Windows AMD CPU, native backend, training
 randomization, every attempt from HOME). 46 of 64 attempts ended at 1.27 s with
