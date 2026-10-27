@@ -143,8 +143,11 @@ def env_cfg(asset: Path | None = None, play: bool = False):
     )
     # At most 25 x 2.2 s = 55 from the reference touchdown to the episode end, about the
     # termination penalty: a completed, upright landing is worth what a crash costs.
+    # Run 3 settled 0.22-0.32 rad short; at sigma_sq 0.25 that kept 82-66% of this term.
+    # Same probe, recomputed: zero residual keeps 32.5 of 33.6, run 3 update 1750 keeps 13.9 of 29.0.
     cfg.rewards["flip_landing"] = RewardTermCfg(
-        func=mdp.flip_landing, weight=25.0, params={"command_name": "jump"},
+        func=mdp.flip_landing, weight=25.0,
+        params={"command_name": "jump", "sigma_sq": 0.05, "upright_cos": 0.966},
     )
     cfg.rewards["termination"] = RewardTermCfg(
         func=envs_mdp.is_terminated, weight=-TERMINATION_PENALTY / cfg.sim.mujoco.timestep

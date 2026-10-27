@@ -576,6 +576,14 @@ it returns -32.4, and 28/64 land. A crash on the shell still ends the attempt
 first: with impact terminations off, the run 1 policy crashes, rolls back upright
 and earns `flip_landing` in 60/64 attempts.
 
+Run 3 (commit `473ac7e`) flips and lands. Under full randomization, update 1750
+lands 146/192 HOME attempts, against 107/192 for zero residual, and ends upright
+in 184/192. However, it settles at 6.06 rad, not 6.28; updates 1900 and 1999 settle
+at 6.02 and 5.96 rad. At sigma 0.25 the landing term still paid 82-66% for that
+shortfall, so `flip_landing` now uses exp(-(turn - 2 pi)^2 / 0.05) and 15 deg of
+tilt. Under nominal physics, zero residual keeps 32.5 of its 33.6, and update 1750
+keeps 13.9 of 29.0.
+
 These settings follow a 64-environment probe of the 0.8-RSI, 50 N-termination
 policy at iteration 1500 (Windows AMD CPU, native backend, training
 randomization, every attempt from HOME). 46 of 64 attempts ended at 1.27 s with
