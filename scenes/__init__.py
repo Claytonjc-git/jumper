@@ -79,6 +79,12 @@ register(
     use="watching",
 )
 register(
+    id="ninja",
+    description="the robot dressed as a ninja, over --ninja-base (default beach) -- for video",
+    tags=("presentation", "costume"),
+    use="watching",
+)
+register(
     id="swing",
     description="**adds a swing**: an A-frame and a plank seat the robot can stand on",
     tags=("prop", "outdoor"),
