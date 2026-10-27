@@ -16,6 +16,7 @@ def agent_cfg() -> RslRlOnPolicyRunnerCfg:
         # entropy bonus its std then grew to 1.23.
         entropy_coef=0.0,
         init_std=0.15,
-        # No augmentation until a forward-rotation reference mirror is verified.
-        symmetry=False,
+        # The reference commands mirror within 0.043 rad (the HOME LF_J3 offset). Run 4 without
+        # this held the right claw 0.25 rad off the left and landed rolled 6 deg (same probe).
+        symmetry=True,
     )

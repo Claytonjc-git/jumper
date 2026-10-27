@@ -584,6 +584,16 @@ shortfall, so `flip_landing` now uses exp(-(turn - 2 pi)^2 / 0.05) and 15 deg of
 tilt. Under nominal physics, zero residual keeps 32.5 of its 33.6, and update 1750
 keeps 13.9 of 29.0.
 
+Run 4 (commit `0abfbea`) completes the turn: update 1900 settles at 6.26 rad and
+lands 64/64 under nominal physics. It lands only 103/192 attempts with full
+randomization, though, and update 1999 fails on self-contact in 43/64 attempts. The
+policy is lopsided. At 1.10 s its right claw is 0.41 rad short of the left on J0 and
+0.50 rad short on J1, and the reference matches the two within 0.01 rad. It lands
+rolled 6 deg; its right claw takes 22 N against 4 N on the left, and the left
+middle calf takes 55 N. The reference commands mirror within 0.043 rad, and a
+zero-residual flip mirrors onto itself within 0.09 rad except during the 15 ms of
+touchdown impact. So PPO now uses the mirror augmentation and mirror loss.
+
 These settings follow a 64-environment probe of the 0.8-RSI, 50 N-termination
 policy at iteration 1500 (Windows AMD CPU, native backend, training
 randomization, every attempt from HOME). 46 of 64 attempts ended at 1.27 s with
