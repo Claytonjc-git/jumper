@@ -547,8 +547,11 @@ qualifies in 10 or fewer.
 Training therefore starts with nominal physics. Foot friction, base COM offset and
 encoder bias are sampled at every reset; their ranges stay at nominal for the first
 500 PPO updates, then widen linearly to the full ranges by update 1,500. The
-`Curriculum/randomization` metric shows the level (0 to 1). Replay keeps the full
-ranges, sampled once at startup. A 2,000-update run spends its last 500 updates at
+`Curriculum/randomization` metric shows the level (0 to 1). Foot friction ranges
+over 0.8-1.5, a clean dry floor by the silicone estimate in `common/constants.py`,
+not the shared 0.5-1.5 that includes dusty and wet floors. With zero residual and
+full randomization, 3/63 HOME attempts land below 0.8 friction; over 0.8-1.5,
+107/192 land. Replay keeps the full ranges, sampled once at startup. A 2,000-update run spends its last 500 updates at
 full randomization.
 
 The run with those settings (run 2, commit `9d1578e`) learned to stand still. By

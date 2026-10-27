@@ -46,6 +46,10 @@ RSI_FRACTION = 0.5
 # (same probe); dropping any one source still leaves 10/64 or fewer.
 RANDOMIZATION_START_UPDATES, RANDOMIZATION_RAMP_UPDATES = 500, 1000
 RANDOMIZED_EVENTS = ("foot_friction", "encoder_bias", "base_com")
+# Clean, dry floor: the silicone estimate in common/constants.py, not the dusty or wet low end.
+# Zero residual at full randomization (192 HOME attempts, same probe) lands 3/63 below 0.8
+# and 79/129 from 0.8 to 1.5; sampled over this range it lands 107/192.
+FOOT_FRICTION_RANGE = (0.8, 1.5)
 
 
 def env_cfg(asset: Path | None = None, play: bool = False):
@@ -62,6 +66,7 @@ def env_cfg(asset: Path | None = None, play: bool = False):
         cfg.events["foot_friction"].params["asset_cfg"] = SceneEntityCfg(
             "robot", geom_names=SUPPORT_GEOMS,
         )
+        cfg.events["foot_friction"].params["ranges"] = FOOT_FRICTION_RANGE
 
     # A flip may invert freely; shell or hard limb impacts and inter-leg contacts end an attempt.
     cfg.scene.sensors = tuple(
