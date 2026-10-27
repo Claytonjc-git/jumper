@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from mjlab.envs import mdp as envs_mdp
 from mjlab.managers import TerminationTermCfg
+from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.metrics_manager import MetricsTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
@@ -17,6 +19,7 @@ from ..common.dance.rewards import peak_actuator_force, torque_headroom_cost
 from ..jump.env_cfg import env_cfg as jump_env_cfg
 from ..jump.mdp.observations import FUTURE_OFFSETS
 from . import mdp
+from .rl_cfg import agent_cfg
 from .physics import (
     CHASSIS_FORCE_LIMIT, CONTROL_DT, PHYSICS_DT, SUPPORT_GEOMS, T_GO, robot_cfg,
     sensors,
@@ -28,7 +31,20 @@ REFERENCE = Path(__file__).resolve().parent / "ref" / "frontflip.npz"
 # the pass/fail line, read from the peak_limb_force metric.
 LIMB_TERMINATION_N = 100.0
 LIMB_PENALTY_FROM_N = 35.0
+# Limb-on-limb contact in the tuck is penalized above 5 N and ends an attempt at 15 N.
+SELF_TERMINATION_N = 15.0
+SELF_PENALTY_FROM_N = 5.0
+# Every non-timeout termination costs this much, so ending in the air cannot beat a landing.
+# Probe, 64 HOME starts, Windows AMD CPU, native (2026-10-26): iteration 1950 earned 21.9 by
+# ending on self-contact at 1.19 s, zero residual 12.8 by landing (41/64 then end at touchdown);
+# landing wins only above 25. At 50 the same probe gives -47.4 against -35.0.
+TERMINATION_PENALTY = 50.0
 RSI_FRACTION = 0.5
+# PPO updates with nominal physics, then over which friction/COM/bias widen to full.
+# With zero residual, 64/64 HOME attempts qualify without randomization and 4/64 with it
+# (same probe); dropping any one source still leaves 10/64 or fewer.
+RANDOMIZATION_START_UPDATES, RANDOMIZATION_RAMP_UPDATES = 500, 1000
+RANDOMIZED_EVENTS = ("foot_friction", "encoder_bias", "base_com")
 
 
 def env_cfg(asset: Path | None = None, play: bool = False):
@@ -69,9 +85,22 @@ def env_cfg(asset: Path | None = None, play: bool = False):
                     "phase_range": (0.0, 0.9)}
     # External pushes obscure the initial physics-reference feasibility measurement.
     cfg.events.pop("push_robot", None)
+    if not play:
+        steps = agent_cfg().num_steps_per_env
+        for name in RANDOMIZED_EVENTS:
+            cfg.events[name].mode = "reset"
+        cfg.curriculum["randomization"] = CurriculumTermCfg(
+            func=mdp.RandomizationRamp,
+            params={"events": RANDOMIZED_EVENTS,
+                    "start_step": RANDOMIZATION_START_UPDATES * steps,
+                    "ramp_steps": RANDOMIZATION_RAMP_UPDATES * steps,
+                    "nominal_friction": next(iter(
+                        cfg.scene.entities["robot"].collisions[0].friction.values()))[0]},
+        )
     cfg.terminations.pop("fell_over", None)
     for name, limit in (("chassis_ground_contact", CHASSIS_FORCE_LIMIT),
-                        ("body_ground_contact", LIMB_TERMINATION_N), ("self_collision", 1.0)):
+                        ("body_ground_contact", LIMB_TERMINATION_N),
+                        ("self_collision", SELF_TERMINATION_N)):
         cfg.terminations[name] = TerminationTermCfg(
             func=mdp.collision_failure, params={"sensor_name": name, "force_threshold": limit}
         )
@@ -84,7 +113,7 @@ def env_cfg(asset: Path | None = None, play: bool = False):
         func=mdp.ref_angular_velocity, weight=2.0, params={"sigma_sq": 4.0}
     )
     cfg.rewards["ref_forward_rotation"] = RewardTermCfg(
-        func=mdp.ref_forward_rotation, weight=2.0, params={"sigma_sq": 0.1}
+        func=mdp.ref_forward_rotation, weight=4.0, params={"sigma_sq": 0.1}
     )
     cfg.rewards["ref_contact"] = RewardTermCfg(
         func=mdp.ref_contact_found, weight=2.5,
@@ -94,6 +123,14 @@ def env_cfg(asset: Path | None = None, play: bool = False):
     cfg.rewards["limb_impact"] = RewardTermCfg(
         func=mdp.contact_force_excess, weight=-20.0,
         params={"sensor_name": "body_ground_contact", "threshold": LIMB_PENALTY_FROM_N},
+    )
+    cfg.rewards["self_impact"] = RewardTermCfg(
+        func=mdp.contact_force_excess, weight=-20.0,
+        params={"sensor_name": "self_collision", "threshold": SELF_PENALTY_FROM_N},
+    )
+    cfg.rewards["termination"] = RewardTermCfg(
+        func=envs_mdp.is_terminated, weight=-TERMINATION_PENALTY / cfg.sim.mujoco.timestep
+        / cfg.decimation,
     )
     cfg.rewards["torque_headroom"] = RewardTermCfg(
         func=torque_headroom_cost, weight=-2.0,
@@ -105,6 +142,9 @@ def env_cfg(asset: Path | None = None, play: bool = False):
     )
     cfg.metrics["peak_limb_force"] = MetricsTermCfg(
         func=mdp.contact_force, reduce="max", params={"sensor_name": "body_ground_contact"},
+    )
+    cfg.metrics["peak_self_force"] = MetricsTermCfg(
+        func=mdp.contact_force, reduce="max", params={"sensor_name": "self_collision"},
     )
     # Include the HOME lead-in for attempts that start from HOME instead of a reference phase.
     cfg.episode_length_s = float(arrays["t"][-1]) + 0.5

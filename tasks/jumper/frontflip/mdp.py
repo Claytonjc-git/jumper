@@ -289,6 +289,42 @@ def contact_force_excess(env, sensor_name="body_ground_contact", threshold=35.0)
     return (contact_force(env, sensor_name) - threshold).clamp_min(0.0)
 
 
+class RandomizationRamp:
+    """Scale the reset-time friction, COM and encoder-bias ranges from nominal to full.
+
+    The level is 0 before `start_step`, then rises linearly to 1 over `ramp_steps`.
+    """
+
+    def __init__(self, cfg, env):
+        p = cfg.params
+        self.start, self.ramp = p["start_step"], p["ramp_steps"]
+        # The event manager samples from its own deep copy of the term configs.
+        self.events = {name: env.event_manager.cfg[name].params for name in p["events"]}
+        self.full = {name: _range_copy(params) for name, params in self.events.items()}
+        self.nominal_friction = p["nominal_friction"]
+
+    def reset(self, env_ids=None):
+        pass
+
+    def __call__(self, env, env_ids, **_):
+        level = min(max((env.common_step_counter - self.start) / max(self.ramp, 1), 0.0), 1.0)
+        nominal = self.nominal_friction
+        lo, hi = self.full["foot_friction"]["ranges"]
+        self.events["foot_friction"]["ranges"] = (nominal + level * (lo - nominal),
+                                                  nominal + level * (hi - nominal))
+        lo, hi = self.full["encoder_bias"]["bias_range"]
+        self.events["encoder_bias"]["bias_range"] = (level * lo, level * hi)
+        self.events["base_com"]["ranges"] = {
+            axis: (level * lo, level * hi) for axis, (lo, hi) in self.full["base_com"]["ranges"].items()
+        }
+        return torch.tensor(level)
+
+
+def _range_copy(params):
+    return {key: dict(value) if isinstance(value, dict) else value for key, value in params.items()
+            if key in ("ranges", "bias_range")}
+
+
 def collision_failure(env, sensor_name, force_threshold=1.0):
     sensor = env.scene[sensor_name]
     history = sensor.data.force_history

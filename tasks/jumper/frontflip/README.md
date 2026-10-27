@@ -37,8 +37,8 @@ The impact and claw gates changed on 2026-10-25. The robot weighs 2.54 kg (25 N)
   (-0.326 N*s), and that braking below the COM produces 70% of the takeoff spin.
   The old gate required forward impulse, which reduces the spin.
 
-Training ends an attempt at 10 N shell force or 100 N limb force; limb force
-between 35 N and 100 N is penalized instead (see below). A negative control,
+Training ends an attempt at 10 N shell force, 100 N limb force or 15 N self-contact force;
+limb force between 35 N and 100 N and self-contact above 5 N are penalized instead (see below). A negative control,
 the original tuck with claws extended, lands on the shell at 214.7 N and fails both
 gates. In the training environment with zero residual, 1 of 8 randomized
 environments (foot friction, COM offset) completed the flip. The other 7 failed
@@ -506,15 +506,50 @@ longer than 15 seconds. The notebook already supplies these defaults.
 
 Tracking starts with the jump recipe's scales, plus orientation error scale
 0.15 rad², angular velocity scale 4 (rad/s)² and accumulated-turn scale
-0.1 rad², each weighted 2. The torque-headroom penalty is -2. These are
+0.1 rad², weighted 2, 2 and 4. The torque-headroom penalty is -2. These are
 starting settings, not convergence measurements. Episode duration is the
 reference length plus 0.5 s. Training uses 50% random reference-state starts
 (including angular velocity) and 50% HOME starts; replay starts from HOME.
 Inversion is allowed. Shell force above 10 N, limb-link force above 100 N and
-self-collisions terminate attempts. Limb force above 35 N (the reference's own
+self-contact force above 15 N terminate attempts. Self-contact above 5 N costs 20 per N per
+second. Limb force above 35 N (the reference's own
 landing peak) costs 20 per N per second, so a 30 ms landing at 50 N costs about
 9 and one at 100 N about 39. The 50 N qualification limit stays the pass/fail
 line: read it from the `peak_limb_force` episode metric.
+
+Every termination except the time-out costs 50. Without it, ending an attempt was
+free and a landing was not, so PPO ended every HOME attempt in the air. A 64-attempt
+probe of the 2,000-update Kaggle run (iteration 1950, Windows AMD CPU, native backend,
+training randomization, every attempt from HOME, state read before reset) measured this:
+
+| HOME attempt | Return | Ends |
+|---|---:|---|
+| Policy, 1 N self-contact gate | 21.9 | 64/64 on self-contact at 1.19 s, in flight |
+| Zero residual | 12.8 | 41/64 at touchdown (1.29 s); landing costs -12.4 |
+| Policy, no impact terminations | -58 from 1.19 to 1.5 s | shell lands at 1.23 s, 237 N |
+
+The contact is the policy's own: it holds `RF_J0` 0.41 rad off the reference and
+closes the 27 mm gap between the right claw's upper arm and the right middle hip. The
+zero residual never touches that pair. With the 15 N gate the same policy ends on
+shell contact at 1.225 s instead. A landing beats the exit only when a termination
+costs more than 25. The policy also launches with less pitch momentum and vertical speed than the reference
+(0.168 against 0.191 N*m*s, 0.92 against 1.13 m/s at 0.98 s) and lands 65 ms early,
+1.57 rad short of the reference turn.
+
+Scaling that policy's residual does not help. With impact terminations off, the
+qualification gates pass in 4, 2, 0, 0 and 0 of 64 attempts at residual gains 0,
+0.25, 0.5, 0.75 and 1. Zero residual mostly fails `turn_in_flight` (median 244 deg,
+57/64) and `limb_impact_bounded` (median 150 N, 55/64). The reference's 273 deg
+flight turn leaves little margin under training randomization. Without randomization,
+zero residual qualifies in 64 of 64 attempts; with any two of the three sources it
+qualifies in 10 or fewer.
+
+Training therefore starts with nominal physics. Foot friction, base COM offset and
+encoder bias are sampled at every reset; their ranges stay at nominal for the first
+500 PPO updates, then widen linearly to the full ranges by update 1,500. The
+`Curriculum/randomization` metric shows the level (0 to 1). Replay keeps the full
+ranges, sampled once at startup. A 2,000-update run spends its last 500 updates at
+full randomization.
 
 These settings follow a 64-environment probe of the 0.8-RSI, 50 N-termination
 policy at iteration 1500 (Windows AMD CPU, native backend, training
